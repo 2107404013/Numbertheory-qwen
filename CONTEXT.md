@@ -46,20 +46,19 @@ NumberTheory-Qwen
 
 ## Current Stage
 
-Stage 0 - 初始化项目骨架、本地 Git、远端运行说明、新虚拟环境说明。
+Stage 1 - Scoring Protocol and Dataset Inspection。
 
 ## Completed
 
-- 创建项目基础目录结构。
-- 创建 README、CONTEXT、requirements、.gitignore。
-- 创建 Stage 0 所需配置文件占位。
-- 创建脚本占位文件，标注后续 Stage 实现范围。
-- 创建 data 说明文件。
-- 初始化本地 Git 仓库。
+- Stage 0: 创建项目基础目录结构、README、CONTEXT、requirements、.gitignore、配置文件、脚本占位和 data 说明文件。
+- Stage 0: 初始化本地 Git 仓库，并推送到 GitHub。
+- Stage 1: 在 `scripts/eval_math.py` 中接入 Math-Verify smoke test。
+- Stage 1: 在 `scripts/eval_math.py` 中加入 JSONL 数据字段审计、boxed rate 和 extraction success rate 统计入口。
+- Stage 1: 在 `scripts/prepare_data.py` 中加入公开 Hugging Face 数据集字段检查入口 `--mode inspect_public`。
 
 ## Next Stage
 
-Stage 1 - Scoring Protocol and Dataset Inspection，接入 Math-Verify，检查公开数据集字段。
+Stage 2 - Build Formal Number Theory Evaluation Set，构造 200 道正式数论评测集。
 
 ## Git Rule
 
