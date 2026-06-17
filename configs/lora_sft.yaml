@@ -1,0 +1,5 @@
+# Stage 5 will complete this LoRA SFT configuration.
+stage: stage-5
+student_model: Qwen/Qwen2.5-Math-1.5B-Instruct
+train_file: data/processed/numina_number_theory_sft_5k.jsonl
+output_dir: outputs/lora_sft

@@ -1,0 +1,5 @@
+# Stage 6 will complete this teacher response generation configuration.
+stage: stage-6
+teacher_model: Qwen/Qwen2.5-Math-7B-Instruct
+input_file: data/processed/numina_number_theory_sft_5k.jsonl
+output_file: data/processed/teacher_number_theory_solutions.jsonl

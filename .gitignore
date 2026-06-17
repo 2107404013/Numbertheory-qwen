@@ -1,0 +1,16 @@
+data/raw/
+data/processed/
+outputs/
+checkpoints/
+models/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+wandb/
+.cache/
+**pycache**/
+.env
+.DS_Store
+*.log

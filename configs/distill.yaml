@@ -1,0 +1,5 @@
+# Stage 8 will complete this optional white-box logits distillation configuration.
+stage: stage-8
+student_model: Qwen/Qwen2.5-Math-1.5B-Instruct
+teacher_model: Qwen/Qwen2.5-Math-7B-Instruct
+output_dir: outputs/logit_distill

@@ -1,0 +1,16 @@
+torch
+transformers
+datasets
+accelerate
+peft
+trl
+bitsandbytes
+sentencepiece
+math-verify
+sympy
+pandas
+numpy
+tqdm
+regex
+pyyaml
+gradio

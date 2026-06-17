@@ -1,0 +1,5 @@
+# Stage 7 will complete this GRPO configuration.
+stage: stage-7
+student_model: Qwen/Qwen2.5-Math-1.5B-Instruct
+reward: math_verify_final_answer
+output_dir: outputs/grpo

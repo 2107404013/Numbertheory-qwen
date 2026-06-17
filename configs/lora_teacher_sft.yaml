@@ -1,0 +1,5 @@
+# Stage 6 will complete this teacher-response distillation SFT configuration.
+stage: stage-6
+student_model: Qwen/Qwen2.5-Math-1.5B-Instruct
+train_file: data/processed/teacher_number_theory_solutions.jsonl
+output_dir: outputs/lora_teacher_sft
