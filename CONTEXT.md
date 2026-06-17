@@ -34,7 +34,7 @@ NumberTheory-Qwen
 
 ## Scoring Protocol
 
-主评分器为 Math-Verify，使用 final-answer equivalence 判断最终答案是否等价。主指标为 Final Answer Accuracy，辅助指标包括 Boxed Answer Rate、Extraction Success Rate 和 Error Type Distribution。
+主评分器为 Math-Verify，使用 final-answer equivalence 判断最终答案是否等价。主指标为 Final Answer Accuracy，辅助指标包括 Boxed Answer Rate、Extraction Success Rate 和 Error Type Distribution。自定义 normalize、列表答案、简单数值和 sympy 等价判断只作为 fallback。
 
 ## Hardware Plan
 
@@ -46,20 +46,40 @@ NumberTheory-Qwen
 
 ## Current Stage
 
-Stage 0 - 初始化项目骨架、本地 Git、远端运行说明、新虚拟环境说明。
+Stage 1 - Scoring Protocol and Dataset Inspection
+
+## Stage 1 Goal
+
+- 接入 Math-Verify。
+- 检查公开数据集字段。
+- 确认正式数论 eval 和训练数据来源。
+- 建立 evaluator unit tests。
+- 不训练，不推理，不下载模型权重。
+
+## Formal Evaluation Plan
+
+- 正式 eval 使用 `Omni-MATH-Rule` / `Omni-MATH` 中的 Number Theory 子集。
+- 规模为 200 道。
+- 只保留纯文本、短答案、适合 rule-based evaluation 的题。
+
+## Training Data Plan
+
+- 使用 `NuminaMath-1.5` Number Theory 子集。
+- 第一版 5k。
+- 后续扩展到 10k。
+- 必须和正式 eval 去重。
 
 ## Completed
 
-- 创建项目基础目录结构。
-- 创建 README、CONTEXT、requirements、.gitignore。
-- 创建 Stage 0 所需配置文件占位。
-- 创建脚本占位文件，标注后续 Stage 实现范围。
-- 创建 data 说明文件。
-- 初始化本地 Git 仓库。
+- Stage 0: 创建项目基础目录结构、README、CONTEXT、requirements、.gitignore、配置文件、脚本占位和 data 说明文件。
+- Stage 0: 初始化本地 Git 仓库，并推送到 GitHub。
+- Stage 1: 在 `scripts/prepare_data.py` 中实现公开数据集字段检查入口 `--mode inspect_public`。
+- Stage 1: 在 `scripts/eval_math.py` 中实现 Math-Verify 主评分器、fallback 等价判断、evaluator unit tests 和 JSONL 数据审计入口。
+- Stage 1: 更新 README 中的 Scoring Protocol。
 
 ## Next Stage
 
-Stage 1 - Scoring Protocol and Dataset Inspection，接入 Math-Verify，检查公开数据集字段。
+Stage 2 - Build Formal Number Theory Evaluation Set
 
 ## Git Rule
 
