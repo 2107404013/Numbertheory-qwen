@@ -22,11 +22,11 @@ NumberTheory-Qwen
 
 ## Formal Eval Dataset
 
-`Omni-MATH-Rule` / `Omni-MATH` 中的 Number Theory 子集，正式 eval 规模为 200 道。
+优先使用 `KbsdJames/Omni-MATH` 的 Number Theory 子集，并参考 `KbsdJames/omni-math-rule` GitHub 仓库中的 rule-based subset 过滤标准。`Omni-MATH-Rule` 不是直接的 Hugging Face dataset name，不能使用 `datasets.load_dataset("Omni-MATH-Rule")`。正式 eval 规模为 200 道。
 
 ## Training Dataset
 
-`NuminaMath-1.5` 中的 Number Theory 子集。第一版训练规模为 5k，确认提升后扩展到 10k。
+`AI-MO/NuminaMath-1.5` 中的 Number Theory 子集。第一版训练规模为 5k，确认提升后扩展到 10k。`AI-MO/NuminaMath-CoT` 作为备用训练数据源。
 
 ## Prompt Language
 
@@ -56,30 +56,38 @@ Stage 1 - Scoring Protocol and Dataset Inspection
 - 建立 evaluator unit tests。
 - 不训练，不推理，不下载模型权重。
 
+## Stage 1 Fix
+
+- 修正数据源定义：不再把 `Omni-MATH-Rule` 当成 Hugging Face dataset name。
+- Hugging Face 优先检查 `KbsdJames/Omni-MATH`、`AI-MO/NuminaMath-1.5`、`AI-MO/NuminaMath-CoT`。
+- Omni-MATH rule-based subset 记录为 `KbsdJames/omni-math-rule` GitHub 仓库来源；脚本会尝试读取 GitHub raw `omni_math_rule.jsonl`，失败时只记录原因，不中断其他数据源检查。
+- Stage 1 仍在进行，下一步仍然是完成 dataset inspection，不进入 Stage 2。
+
 ## Formal Evaluation Plan
 
-- 正式 eval 使用 `Omni-MATH-Rule` / `Omni-MATH` 中的 Number Theory 子集。
+- 如果能读取 `KbsdJames/omni-math-rule` 的 GitHub raw rule-based subset，则优先使用该子集。
+- 否则从 `KbsdJames/Omni-MATH` 中筛选 Number Theory 子集。
 - 规模为 200 道。
 - 只保留纯文本、短答案、适合 rule-based evaluation 的题。
 
 ## Training Data Plan
 
-- 使用 `NuminaMath-1.5` Number Theory 子集。
+- 使用 `AI-MO/NuminaMath-1.5` Number Theory 子集。
 - 第一版 5k。
 - 后续扩展到 10k。
 - 必须和正式 eval 去重。
+- `AI-MO/NuminaMath-CoT` 作为备用训练数据源。
 
 ## Completed
 
 - Stage 0: 创建项目基础目录结构、README、CONTEXT、requirements、.gitignore、配置文件、脚本占位和 data 说明文件。
 - Stage 0: 初始化本地 Git 仓库，并推送到 GitHub。
-- Stage 1: 在 `scripts/prepare_data.py` 中实现公开数据集字段检查入口 `--mode inspect_public`。
 - Stage 1: 在 `scripts/eval_math.py` 中实现 Math-Verify 主评分器、fallback 等价判断、evaluator unit tests 和 JSONL 数据审计入口。
-- Stage 1: 更新 README 中的 Scoring Protocol。
+- Stage 1 fix: 修正 `scripts/prepare_data.py` 的公开数据源检查逻辑，避免错误调用 `datasets.load_dataset("Omni-MATH-Rule")`。
 
 ## Next Stage
 
-Stage 2 - Build Formal Number Theory Evaluation Set
+完成 Stage 1 dataset inspection。不要进入 Stage 2。
 
 ## Git Rule
 
