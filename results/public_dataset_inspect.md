@@ -2,38 +2,76 @@
 
 Stage 1 inspection only. This file records dataset schemas and suitability notes; it does not store raw datasets.
 
-## Omni-MATH-Rule
+Important correction: `Omni-MATH-Rule` is not treated as a Hugging Face dataset name.
+The rule-based subset is inspected from the `KbsdJames/omni-math-rule` GitHub repository when a raw JSONL URL is reachable.
 
-- dataset_name: `Omni-MATH-Rule`
-- loaded: False
-- failure_reason: DatasetNotFoundError("Dataset 'Omni-MATH-Rule' doesn't exist on the Hub or cannot be accessed.")
-- available_splits: []
-- column_names: []
-- problem/question field candidates: []
-- answer/final_answer field candidates: []
-- solution field candidates: []
-- subject/domain/category/problem_type field candidates: []
-- difficulty field candidates: []
+## Omni-MATH rule-based subset
+
+- source_type: github_raw
+- dataset_name: ``
+- repo: `KbsdJames/omni-math-rule`
+- loaded: True
+- failure_reason: 
+- available_configs: []
+- available_splits: ['jsonl']
+- used_config: 
+- used_split: 
+- used_raw_url: https://raw.githubusercontent.com/KbsdJames/omni-math-rule/main/omni_math_rule.jsonl
+- column_names: ['domain', 'difficulty', 'problem', 'solution', 'answer', 'source']
+- problem/question field candidates: ['problem']
+- answer/final_answer field candidates: ['answer']
+- solution field candidates: ['solution']
+- subject/domain/category/problem_type field candidates: ['domain']
+- difficulty field candidates: ['difficulty']
 - can_filter_number_theory: False
-- contains_proof_like: False
-- contains_image_multimodal_like: False
+- contains_proof_like: True
+- contains_image_multimodal_like: True
 - contains_open_ended_like: False
-- suitable_for_formal_eval: False
+- suitable_for_formal_eval: True
 - suitable_for_training: False
 - recommended_use: formal_eval
+- notes: This is not a Hugging Face dataset name. It is a GitHub repository used as the reference for rule-based evaluation filtering.
 
 ### First 2 Samples
 
 ```json
-[]
+[
+  {
+    "domain": [
+      "Mathematics -> Algebra -> Intermediate Algebra -> Inequalities",
+      "Mathematics -> Discrete Mathematics -> Algorithms"
+    ],
+    "difficulty": 8.0,
+    "problem": "Consider pairs $(f,g)$ of functions from the set of nonnegative integers to itself such that \n[list]\n[*]$f(0) \\geq f(1) \\geq f(2) \\geq \\dots \\geq f(300) \\geq 0$\n[*]$f(0)+f(1)+f(2)+\\dots+f(300) \\leq 300$\n[*]for any 20 nonnegative integers $n_1, n_2, \\dots, n_{20}$, not necessarily distinct, we have $$g(n_1+n_2+\\dots+n_{20}) \\leq f(n_1)+f(n_2)+\\dots+f(n_{20}).$$\n[/list]\nDetermine the maximum possible value of $g(0)+g(1)+\\dots+g(6000)$ over all such pairs of functions.\n\n[i]Sean Li[/i]",
+    "solution": "\nConsider pairs \\((f, g)\\) of functions from the set of nonnegative integers to itself such that:\n- \\(f(0) \\geq f(1) \\geq f(2) \\geq \\dots \\geq f(300) \\geq 0\\),\n- \\(f(0) + f(1) + f(2) + \\dots + f(300) \\leq 300\\),\n- for any 20 nonnegative integers \\(n_1, n_2, \\dots, n_{20}\\), not necessarily distinct, we have \\(g(n_1 + n_2 + \\dots + n_{20}) \\leq f(n_1) + f(n_2) + \\dots + f(n_{20})\\).\n\nWe aim to determine the maximum possible value of \\(g(0) + g(1) + \\dots + g(6000)\\) over all such pairs of functions.\n\nThe answer is \\(\\boxed{115440}\\). The construction achieving this maximum is given by:\n\\[ f(x) = \\max(24 - x, 0) \\]\nand\n\\[ g(x) = \\max(480 - x, 0). \\]\n\nThis construction satisfies all the given conditions and achieves the maximum sum for \\(g(0) + g(1) + \\dots + g(6000)\\).\n\nThe answer is \\(\\boxed{115440}\\).",
+    "answer": "115440",
+    "source": "usa_team_selection_test_for_imo"
+  },
+  {
+    "domain": [
+      "Mathematics -> Discrete Mathematics -> Combinatorics"
+    ],
+    "difficulty": 7.0,
+    "problem": "Let $f:X\\rightarrow X$, where $X=\\{1,2,\\ldots ,100\\}$, be a function satisfying:\n1) $f(x)\\neq x$ for all $x=1,2,\\ldots,100$;\n2) for any subset $A$ of $X$ such that $|A|=40$, we have $A\\cap f(A)\\neq\\emptyset$.\nFind the minimum $k$ such that for any such function $f$, there exist a subset $B$ of $X$, where $|B|=k$, such that $B\\cup f(B)=X$.",
+    "solution": "\nLet \\( f: X \\rightarrow X \\), where \\( X = \\{1, 2, \\ldots, 100\\} \\), be a function satisfying:\n1. \\( f(x) \\neq x \\) for all \\( x = 1, 2, \\ldots, 100 \\);\n2. For any subset \\( A \\) of \\( X \\) such that \\( |A| = 40 \\), we have \\( A \\cap f(A) \\neq \\emptyset \\).\n\nWe need to find the minimum \\( k \\) such that for any such function \\( f \\), there exists a subset \\( B \\) of \\( X \\), where \\( |B| = k \\), such that \\( B \\cup f(B) = X \\).\n\nConsider the arrow graph of \\( f \\) on \\( X \\). Each connected component looks like a directed cycle with a bunch of trees coming off each vertex of the cycle. For each connected component \\( C \\), let \\( \\alpha(C) \\) be the maximum number of elements of \\( C \\) we can choose such that their image under \\( f \\) is disjoint from them, and let \\( \\beta(C) \\) be the minimum number of vertices of \\( C \\) we can choose such that they and their image cover \\( C \\). We have the following key claim:\n\n**Claim:** We have \\( \\alpha(C) \\geq \\beta(C) - 1 \\).\n\n**Proof:** It suffices to show that given a subset \\( D \\subseteq C \\) such that \\( D \\) and \\( f(D) \\) cover \\( C \\), we can find a subset \\( D' \\subseteq C \\) such that \\( |D'| \\leq |D| \\) and such that there is at most one pair of elements from \\( D' \\) that are adjacent.\n\nLabel the edges of \\( C \\) with ordinal numbers. Label the edges of the cycle with \\( 1 \\), and for any edge with depth \\( k \\) into the tree it's in (with depth \\( 1 \\) for edges incident to the cycle), label it with \\( \\omega^k \\). Suppose we're given \\( D \\subseteq C \\) such that \\( D \\) and \\( f(D) \\) cover \\( C \\). Call an edge *bad* if both of its endpoints are in \\( D \\). We'll show that either all the bad edges are on the central cycle, or there is a way to modify \\( D \\) such that its cardinality does not increase, and the sum of the weights of the bad edges decreases. Since we can't have infinite decreasing sequences of ordinals, we'll reduce the problem to the case where the only bad edges are on the central cycle.\n\nSuppose we have a bad edge \\( a \\to f(a) \\) with weight \\( \\omega^k \\) for \\( k \\geq 2 \\). Modify \\( D \\) by removing \\( f(a) \\) from \\( D \\) and adding \\( f(f(a)) \\) if it is not already present. If \\( f(f(a)) \\) is already present, then the size of \\( D \\) decreases and the set of bad edges becomes a strict subset of what it was before, so the sum of their weights goes down. If \\( f(f(a)) \\) is not already present, then the size of \\( D \\) doesn't change, and we lose at least one bad edge with weight \\( \\omega^k \\), and potentially gain many bad edges with weights \\( \\omega^{k-1} \\) or \\( \\omega^{k-2} \\), so the total weight sum goes down.\n\nSuppose we have a bad edge \\( a \\to f(a) \\) with weight \\( \\omega \\). Then, \\( f(a) \\) is part of the central cycle of \\( C \\). If \\( f(f(a)) \\) is already present, delete \\( f(a) \\), so the size of \\( D \\) doesn't change, and the set of bad edges becomes a strict subset of what it was before, so the sum of their weights goes down. Now suppose \\( f(f(a)) \\) is not already present. If there are elements that map to \\( f(f(a)) \\) in the tree rooted at \\( f(f(a)) \\) that are in \\( D \\), then we can simply delete \\( f(a) \\), and by the same logic as before, we're fine. So now suppose that there are no elements in the tree rooted at \\( f(f(a)) \\) that map to it. Then, deleting \\( f(a) \\) and adding \\( f(f(a)) \\) removes an edge of weight \\( \\omega \\) and only adds edges of weight \\( 1 \\), so the size of \\( D \\) stays the same and the sum of the weights goes down.\n\nThis shows that we can reduce \\( D \\) down such that the only bad edges of \\( D \\) are on the central cycle. Call a vertex of the central cycle *deficient* if it does not have any elements of \\( D \\) one level above it in the tree rooted at the vertex, or in other words, a vertex is deficient if it will not be covered by \\( D \\cup f(D) \\) if we remove all the cycle elements from \\( D \\). Note that all elements of \\( D \\) on the cycle are deficient since there are no bad edges not on the cycle. Fixing \\( D \\) and changing which subset of deficient vertices we choose, the claim reduces to the following: Suppose we have a directed cycle of length \\( m \\), and some \\( k \\) of the vertices are said to be deficient. There is a subset \\( D \\) of the deficient vertices such that all the deficient vertices are covered by either \\( D \\) or the image of \\( D \\) of minimal size such that at most one edge of the cycle has both endpoints in \\( D \\).\n\nTo prove this, split the deficient vertices into contiguous blocks. First suppose that the entire cycle is not a block. Each block acts independently, and is isomorphic to a directed path. It is clear that in this case, it is optimal to pick every other vertex from each block, and any other selection covering every vertex of the block with it and its image will be of larger size. Thus, it suffices to look at the case where all vertices are deficient. In this case, it is again clearly optimal to select \\( (m+1)/2 \\) of the vertices such that there is only one bad edge, so we're done.\n\nThis completes the proof of the claim. \\( \\blacksquare \\)\n\nLet \\( \\mathcal{C} \\) be the set of connected components. We see that \n\\[\n39 \\geq \\sum_{C \\in \\mathcal{C}} \\alpha(C) \\geq \\sum_{C \\in \\mathcal{C}} \\beta(C) - |\\mathcal{C}|.\n\\]\nIf \\( |\\mathcal{C}| \\leq 30 \\), then we see that \n\\[\n\\sum_{C \\in \\mathcal{C}} \\beta(C) \\leq 69,\n\\]\nso we can select a subset \\( B \\subseteq X \\) such that \\( |B| \\leq 69 \\) and \\( B \\cup f(B) = X \\). If \\( |\\mathcal{C}| \\geq 31 \\), then from each connected component, select all but some vertex with nonzero indegree (this exists since there are no isolated vertices) to make up \\( B \\). We see then that \\( |B| \\leq 100 - |\\mathcal{C}| = 69 \\) again. Thus, in all cases, we can select valid \\( B \\) with \\( |B| \\leq 69 \\).\n\nIt suffices to construct \\( f \\) such that the minimal such \\( B \\) has size 69. To do this, let the arrow graph of \\( f \\) be made up of 29 disjoint 3-cycles, and a component consisting of a 3-cycle \\( a \\to b \\to c \\to a \\) with another vertex \\( x \\to a \\), and 9 vertices \\( y_1, \\ldots, y_9 \\) pointing to \\( x \\). This satisfies the second condition of the problem, since any \\( A \\) satisfying \\( A \\cap f(A) = \\emptyset \\) can take at most 1 from each 3-cycle, and at most 12 from the last component. Any \\( B \\) satisfying \\( B \\cup f(B) = X \\) must have at least 2 from each of the 3-cycles, and at least 11 from the last component, for a total of at least \\( 29 \\cdot 2 + 11 = 69 \\), as desired. We can get 69 by selecting exactly 2 from each 3-cycle, and everything but \\( x \\) and \\( c \\) from the last component. This shows that the answer to the problem is \\( \\boxed{69} \\).",
+    "answer": "69",
+    "source": "china_national_olympiad"
+  }
+]
 ```
 
-## Omni-MATH
+## KbsdJames/Omni-MATH
 
+- source_type: huggingface_dataset
 - dataset_name: `KbsdJames/Omni-MATH`
+- repo: ``
 - loaded: True
 - failure_reason: 
+- available_configs: ['default']
 - available_splits: ['test']
+- used_config: default
+- used_split: test
+- used_raw_url: 
 - column_names: ['domain', 'difficulty', 'problem', 'solution', 'answer', 'source']
 - problem/question field candidates: ['problem']
 - answer/final_answer field candidates: ['answer']
@@ -47,6 +85,7 @@ Stage 1 inspection only. This file records dataset schemas and suitability notes
 - suitable_for_formal_eval: True
 - suitable_for_training: False
 - recommended_use: formal_eval
+- notes: Primary HF source for formal eval candidates.
 
 ### First 2 Samples
 
@@ -77,10 +116,16 @@ Stage 1 inspection only. This file records dataset schemas and suitability notes
 
 ## AI-MO/NuminaMath-1.5
 
+- source_type: huggingface_dataset
 - dataset_name: `AI-MO/NuminaMath-1.5`
+- repo: ``
 - loaded: True
 - failure_reason: 
+- available_configs: ['default']
 - available_splits: ['train']
+- used_config: default
+- used_split: train
+- used_raw_url: 
 - column_names: ['problem', 'solution', 'answer', 'problem_type', 'question_type', 'problem_is_valid', 'solution_is_valid', 'source', 'synthetic']
 - problem/question field candidates: ['problem', 'problem_is_valid', 'problem_type', 'question_type']
 - answer/final_answer field candidates: ['answer']
@@ -94,6 +139,7 @@ Stage 1 inspection only. This file records dataset schemas and suitability notes
 - suitable_for_formal_eval: False
 - suitable_for_training: True
 - recommended_use: train_sft
+- notes: Primary training source; inspect whether problem_type == Number Theory is available.
 
 ### First 2 Samples
 
@@ -126,10 +172,16 @@ Stage 1 inspection only. This file records dataset schemas and suitability notes
 
 ## AI-MO/NuminaMath-CoT
 
+- source_type: huggingface_dataset
 - dataset_name: `AI-MO/NuminaMath-CoT`
+- repo: ``
 - loaded: True
 - failure_reason: 
+- available_configs: ['default']
 - available_splits: ['train', 'test']
+- used_config: default
+- used_split: train
+- used_raw_url: 
 - column_names: ['source', 'problem', 'solution', 'messages']
 - problem/question field candidates: ['problem']
 - answer/final_answer field candidates: []
@@ -143,6 +195,7 @@ Stage 1 inspection only. This file records dataset schemas and suitability notes
 - suitable_for_formal_eval: False
 - suitable_for_training: True
 - recommended_use: backup
+- notes: Backup training source; inspect schema before use.
 
 ### First 2 Samples
 
@@ -180,3 +233,4 @@ Stage 1 inspection only. This file records dataset schemas and suitability notes
   }
 ]
 ```
+
