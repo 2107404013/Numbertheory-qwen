@@ -1,11 +1,5 @@
 """Math scoring utilities for NumberTheory-Qwen.
 
-Stage 1 implements:
-- Math-Verify based final-answer equivalence.
-- Conservative fallback matching for common short answers.
-- Evaluator smoke tests.
-- JSONL evaluation-data audit.
-
 This script does not load models or run inference.
 """
 
@@ -25,13 +19,13 @@ RESULTS_DIR = Path("results")
 DEFAULT_AUDIT_FILE = Path("data/processed/public_number_theory_eval.jsonl")
 
 ANSWER_TRIGGER_PATTERNS = [
-    r"答案为[:：]?\s*([^。\n；;]+)",
-    r"最终答案是[:：]?\s*([^。\n；;]+)",
-    r"最终答案为[:：]?\s*([^。\n；;]+)",
+    r"\u7b54\u6848\u4e3a[:\uff1a]?\s*([^\u3002\n\uff1b;]+)",
+    r"\u6700\u7ec8\u7b54\u6848\u662f[:\uff1a]?\s*([^\u3002\n\uff1b;]+)",
+    r"\u6700\u7ec8\u7b54\u6848\u4e3a[:\uff1a]?\s*([^\u3002\n\uff1b;]+)",
 ]
 CONCLUSION_PATTERNS = [
-    r"因此[,，]?\s*([^。\n；;]{1,80})",
-    r"所以[,，]?\s*([^。\n；;]{1,80})",
+    r"\u56e0\u6b64[,，]?\s*([^\u3002\n\uff1b;]{1,80})",
+    r"\u6240\u4ee5[,，]?\s*([^\u3002\n\uff1b;]{1,80})",
 ]
 
 
@@ -46,19 +40,19 @@ def extract_boxed_answer(text: Any) -> str | None:
     if text is None:
         return None
 
-    s = str(text)
-    starts = [match.start() for match in re.finditer(r"\\boxed\s*\{", s)]
+    value = str(text)
+    starts = [match.start() for match in re.finditer(r"\\boxed\s*\{", value)]
     if not starts:
         return None
 
     for start in reversed(starts):
-        brace_start = s.find("{", start)
+        brace_start = value.find("{", start)
         if brace_start < 0:
             continue
 
         depth = 0
         chars: list[str] = []
-        for char in s[brace_start:]:
+        for char in value[brace_start:]:
             if char == "{":
                 depth += 1
                 if depth > 1:
@@ -69,37 +63,35 @@ def extract_boxed_answer(text: Any) -> str | None:
                     return "".join(chars).strip()
                 if depth > 0:
                     chars.append(char)
-            else:
-                if depth > 0:
-                    chars.append(char)
+            elif depth > 0:
+                chars.append(char)
 
     return None
 
 
 def extract_answer_candidates(text: Any) -> list[str]:
-    """Return ordered answer candidates from model output."""
     if text is None:
         return []
 
-    s = str(text)
+    value = str(text)
     candidates: list[str] = []
 
-    boxed = extract_boxed_answer(s)
+    boxed = extract_boxed_answer(value)
     if boxed:
         candidates.append(boxed)
 
     for pattern in ANSWER_TRIGGER_PATTERNS + CONCLUSION_PATTERNS:
-        for match in re.finditer(pattern, s):
+        for match in re.finditer(pattern, value):
             candidate = match.group(1).strip()
             if candidate:
                 candidates.append(candidate)
 
-    for lhs, rhs in re.findall(r"([A-Za-z0-9_\\^{}+\-*/().]+)\s*=\s*([^,，。\n；;]+)", s):
+    for lhs, rhs in re.findall(r"([A-Za-z0-9_\\^{}+\-*/().]+)\s*=\s*([^,，。\n\uff1b;]+)", value):
         if lhs and rhs:
             candidates.append(rhs.strip())
 
-    if not candidates and s.strip():
-        candidates.append(s.strip())
+    if not candidates and value.strip():
+        candidates.append(value.strip())
 
     deduped: list[str] = []
     seen: set[str] = set()
@@ -142,8 +134,8 @@ def normalize_answer(ans: Any) -> str:
     text = text.replace("\\,", "").replace("\\!", "")
     text = text.replace("$", "")
     text = text.replace("，", ",").replace("；", ",").replace("、", ",")
-    text = re.sub(r"(?<=\d)\s*(和|或)\s*(?=\d)", ",", text)
-    text = re.sub(r"\s+(和|或)\s+", ",", text)
+    text = re.sub(r"(?<=\d)\s*(\u548c|\u6216)\s*(?=\d)", ",", text)
+    text = re.sub(r"\s+(\u548c|\u6216)\s+", ",", text)
     text = re.sub(r"[。.;:：]$", "", text.strip())
     text = re.sub(r"\s+", "", text)
     text = text.strip("{}[]()")
@@ -157,7 +149,6 @@ def _parse_math_verify(value: Any) -> Any:
 
 
 def verify_with_math_verify(pred: Any, gold: Any) -> MatchResult:
-    """Use Math-Verify as the primary scorer. Fail closed on parser errors."""
     try:
         from math_verify import verify
 
@@ -173,7 +164,7 @@ def _split_list_answer(value: Any) -> list[str]:
     text = normalize_answer(value)
     text = re.sub(r"\b(and|or)\b", ",", text, flags=re.IGNORECASE)
     text = re.sub(r"[{}]", "", text)
-    text = text.replace("或", ",").replace("和", ",")
+    text = text.replace("\u6216", ",").replace("\u548c", ",")
     text = re.sub(r"[A-Za-z]+=", "", text)
     parts = [part for part in re.split(r",|\|", text) if part]
     return sorted(parts)
@@ -246,13 +237,13 @@ def classify_gold_answer(problem: Any, gold: Any) -> str:
 
     if not gold_text:
         return "empty_answer"
-    if any(token in combined for token in ["证明", "prove", "show that", "proof"]):
+    if any(token in combined for token in ["\u8bc1\u660e", "prove", "show that", "proof"]):
         return "possible_proof"
-    if any(token in combined for token in ["图", "image", "figure", "diagram", "shown below"]):
+    if any(token in combined for token in ["\u56fe", "image", "figure", "diagram", "shown below"]):
         return "possible_image_problem"
     if len(gold_text) > 220 or gold_text.count("\n") >= 2:
         return "long_solution_like_answer"
-    if any(token in gold_text for token in ["无法确定", "开放", "depends", "任意"]):
+    if any(token in gold_text for token in ["\u65e0\u6cd5\u786e\u5b9a", "\u5f00\u653e", "depends", "\u4efb\u610f"]):
         return "unsupported_format"
     return "short_answer"
 
@@ -279,16 +270,16 @@ def classify_eval_case(pred: Any, gold: Any, model_output: Any) -> str:
 
 def run_evaluator_tests() -> None:
     tests = [
-        {"pred": "2 和 3", "gold": "2,3", "expected": True},
+        {"pred": "2 \u548c 3", "gold": "2,3", "expected": True},
         {"pred": "{2,3}", "gold": "2,3", "expected": True},
-        {"pred": "x=2 或 x=3", "gold": "2,3", "expected": True},
+        {"pred": "x=2 \u6216 x=3", "gold": "2,3", "expected": True},
         {"pred": r"\frac{1}{2}", "gold": "1/2", "expected": True},
         {"pred": "0.5", "gold": "1/2", "expected": True},
         {"pred": "x^3+y^3+z^3=3xyz", "gold": "3xyz", "expected": True},
         {"pred": "1", "gold": "6", "expected": False},
         {"pred": "12", "gold": "12", "expected": True},
         {"pred": "-1", "gold": "1", "expected": False},
-        {"pred": "n is even", "gold": "偶数", "expected": False},
+        {"pred": "n is even", "gold": "\u5076\u6570", "expected": False},
     ]
 
     rows = []
@@ -358,6 +349,7 @@ def audit_data(data_file: Path) -> None:
                     "problem": _shorten(problem, 200),
                     "answer": answer,
                     "source": row.get("source", ""),
+                    "difficulty": row.get("difficulty", ""),
                     "classify_gold_answer": label,
                 }
             )
@@ -373,6 +365,7 @@ def audit_data(data_file: Path) -> None:
         lines.append(f"- problem: {example['problem']}")
         lines.append(f"- answer: {example['answer']}")
         lines.append(f"- source: {example['source']}")
+        lines.append(f"- difficulty: {example['difficulty']}")
         lines.append(f"- classify_gold_answer: {example['classify_gold_answer']}")
         lines.append("")
 

@@ -22,7 +22,7 @@ NumberTheory-Qwen
 
 ## Formal Eval Dataset
 
-优先使用 `KbsdJames/Omni-MATH` 的 Number Theory 子集，并参考 `KbsdJames/omni-math-rule` GitHub 仓库中的 rule-based subset 过滤标准。`Omni-MATH-Rule` 不是直接的 Hugging Face dataset name，不能使用 `datasets.load_dataset("Omni-MATH-Rule")`。正式 eval 规模为 200 道。
+优先使用 `KbsdJames/Omni-MATH` 的 Number Theory 子集，并参考 `KbsdJames/omni-math-rule` GitHub 仓库中的 rule-based subset 过滤标准。`Omni-MATH-Rule` 不是直接的 Hugging Face dataset name，不能使用 `datasets.load_dataset("Omni-MATH-Rule")`。正式 eval 目标规模为 200 道。
 
 ## Training Dataset
 
@@ -46,30 +46,27 @@ NumberTheory-Qwen
 
 ## Current Stage
 
-Stage 1 - Scoring Protocol and Dataset Inspection
+Stage 2 - Build Formal Number Theory Evaluation Set
 
-## Stage 1 Goal
+## Stage 2 Goal
 
-- 接入 Math-Verify。
-- 检查公开数据集字段。
-- 确认正式数论 eval 和训练数据来源。
-- 建立 evaluator unit tests。
-- 不训练，不推理，不下载模型权重。
-
-## Stage 1 Fix
-
-- 修正数据源定义：不再把 `Omni-MATH-Rule` 当成 Hugging Face dataset name。
-- Hugging Face 优先检查 `KbsdJames/Omni-MATH`、`AI-MO/NuminaMath-1.5`、`AI-MO/NuminaMath-CoT`。
-- Omni-MATH rule-based subset 记录为 `KbsdJames/omni-math-rule` GitHub 仓库来源；脚本会尝试读取 GitHub raw `omni_math_rule.jsonl`，失败时只记录原因，不中断其他数据源检查。
-- 修正 evaluator fallback 列表解析，使 `x=2 或 x=3` 能与 `2,3` 等价匹配。
-- Stage 1 仍在进行，下一步仍然是完成 dataset inspection，不进入 Stage 2。
+- 从公开奥赛级数学数据集中筛选 200 道正式数论评测题。
+- 只保留纯文本、短答案、适合 Math-Verify 自动评分的题。
+- 生成 `data/processed/public_number_theory_eval.jsonl`。
+- 生成 `results/public_eval_data_summary.json`。
+- 生成 `results/public_eval_manifest.json`。
+- 生成 `results/evaluator_audit.md`。
+- 不训练，不推理，不下载 Qwen 权重。
 
 ## Formal Evaluation Plan
 
 - 如果能读取 `KbsdJames/omni-math-rule` 的 GitHub raw rule-based subset，则优先使用该子集。
 - 否则从 `KbsdJames/Omni-MATH` 中筛选 Number Theory 子集。
-- 规模为 200 道。
+- 目标规模为 200 道。
+- 使用固定 seed：20260618。
 - 只保留纯文本、短答案、适合 rule-based evaluation 的题。
+- 一旦正式 eval 生成，后续 Stage 3、Stage 5、Stage 6、Stage 7 和 Stage 8 都必须使用同一份 eval，不得随意改动。
+- 如果不足 200 道，不造题、不混入非数论题，在 summary 中如实记录实际数量和原因。
 
 ## Training Data Plan
 
@@ -83,13 +80,15 @@ Stage 1 - Scoring Protocol and Dataset Inspection
 
 - Stage 0: 创建项目基础目录结构、README、CONTEXT、requirements、.gitignore、配置文件、脚本占位和 data 说明文件。
 - Stage 0: 初始化本地 Git 仓库，并推送到 GitHub。
-- Stage 1: 在 `scripts/eval_math.py` 中实现 Math-Verify 主评分器、fallback 等价判断、evaluator unit tests 和 JSONL 数据审计入口。
-- Stage 1 fix: 修正 `scripts/prepare_data.py` 的公开数据源检查逻辑，避免错误调用 `datasets.load_dataset("Omni-MATH-Rule")`。
-- Stage 1 fix: 修正 `scripts/eval_math.py` 中中文“或/和”列表答案的 fallback 解析顺序。
+- Stage 1: 接入 Math-Verify 主评分器、fallback 等价判断、evaluator unit tests 和 JSONL 数据审计入口。
+- Stage 1: 修正公开数据源检查逻辑，避免错误调用 `datasets.load_dataset("Omni-MATH-Rule")`。
+- Stage 2: 实现 `scripts/prepare_data.py --mode build_eval --max_eval_samples 200`。
+- Stage 2: 更新 `scripts/eval_math.py --audit_data`，输出正式 eval 审计文件。
+- Stage 2: 更新 `configs/baseline_eval.yaml` 指向正式 eval 文件。
 
 ## Next Stage
 
-完成 Stage 1 dataset inspection。不要进入 Stage 2。
+Stage 3 - Formal Baseline Evaluation。只有在用户确认 Stage 2 结果合格后才能进入。
 
 ## Git Rule
 
