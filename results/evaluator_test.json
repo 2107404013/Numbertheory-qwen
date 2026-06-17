@@ -19,9 +19,9 @@
     "pred": "x=2 或 x=3",
     "gold": "2,3",
     "expected": true,
-    "actual": false,
-    "passed": false,
-    "match_method": "failed"
+    "actual": true,
+    "passed": true,
+    "match_method": "fallback_list"
   },
   {
     "pred": "\\frac{1}{2}",
