@@ -173,8 +173,8 @@ def _split_list_answer(value: Any) -> list[str]:
     text = normalize_answer(value)
     text = re.sub(r"\b(and|or)\b", ",", text, flags=re.IGNORECASE)
     text = re.sub(r"[{}]", "", text)
-    text = re.sub(r"[A-Za-z]\\s*=", "", text)
     text = text.replace("或", ",").replace("和", ",")
+    text = re.sub(r"[A-Za-z]+=", "", text)
     parts = [part for part in re.split(r",|\|", text) if part]
     return sorted(parts)
 

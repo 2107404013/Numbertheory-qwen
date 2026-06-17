@@ -61,6 +61,7 @@ Stage 1 - Scoring Protocol and Dataset Inspection
 - 修正数据源定义：不再把 `Omni-MATH-Rule` 当成 Hugging Face dataset name。
 - Hugging Face 优先检查 `KbsdJames/Omni-MATH`、`AI-MO/NuminaMath-1.5`、`AI-MO/NuminaMath-CoT`。
 - Omni-MATH rule-based subset 记录为 `KbsdJames/omni-math-rule` GitHub 仓库来源；脚本会尝试读取 GitHub raw `omni_math_rule.jsonl`，失败时只记录原因，不中断其他数据源检查。
+- 修正 evaluator fallback 列表解析，使 `x=2 或 x=3` 能与 `2,3` 等价匹配。
 - Stage 1 仍在进行，下一步仍然是完成 dataset inspection，不进入 Stage 2。
 
 ## Formal Evaluation Plan
@@ -84,6 +85,7 @@ Stage 1 - Scoring Protocol and Dataset Inspection
 - Stage 0: 初始化本地 Git 仓库，并推送到 GitHub。
 - Stage 1: 在 `scripts/eval_math.py` 中实现 Math-Verify 主评分器、fallback 等价判断、evaluator unit tests 和 JSONL 数据审计入口。
 - Stage 1 fix: 修正 `scripts/prepare_data.py` 的公开数据源检查逻辑，避免错误调用 `datasets.load_dataset("Omni-MATH-Rule")`。
+- Stage 1 fix: 修正 `scripts/eval_math.py` 中中文“或/和”列表答案的 fallback 解析顺序。
 
 ## Next Stage
 
