@@ -1,0 +1,49 @@
+{
+  "target_train_samples": 5000,
+  "actual_train_samples": 5000,
+  "source": "AI-MO/NuminaMath-1.5",
+  "subject": "number_theory",
+  "selection_method_distribution": {
+    "field_filter": 5000
+  },
+  "problem_type_distribution": {
+    "Number Theory": 5000
+  },
+  "question_type_distribution": {
+    "math-word-problem": 5000
+  },
+  "candidate_count_before_filter": 86373,
+  "candidate_count_after_number_theory_filter": 12966,
+  "candidate_count_after_quality_filter": 5117,
+  "duplicates_removed": 41,
+  "suspected_eval_leakage_removed": 0,
+  "exact_eval_leakage_removed": 0,
+  "near_eval_leakage_removed": 0,
+  "skip_reasons": {
+    "invalid_answer": 4659,
+    "not_number_theory": 73407,
+    "invalid_problem_flag": 1366,
+    "empty_answer": 132,
+    "invalid_solution_flag": 938,
+    "proof_like_problem": 450,
+    "solution_too_short": 181,
+    "image_like_problem": 40,
+    "open_ended_problem": 69,
+    "duplicate_train_problem": 41,
+    "empty_solution": 14
+  },
+  "avg_problem_length": 235.0366,
+  "avg_solution_length": 959.5308,
+  "avg_answer_length": 9.9432,
+  "quality_limits": {
+    "min_problem_length": 20,
+    "min_solution_length": 80,
+    "max_solution_length": 12000,
+    "eval_similarity_threshold": 0.85
+  },
+  "selection_priority": "math-word-problem first, then other eligible Number Theory samples",
+  "scan_stopped_after_target": true,
+  "train_file": "data/processed/train_number_theory_sft_5k.jsonl",
+  "eval_file_used_for_dedup": "data/processed/public_number_theory_eval.jsonl",
+  "insufficient_samples_reason": ""
+}
