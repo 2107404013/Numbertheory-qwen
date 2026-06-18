@@ -1,4 +1,4 @@
-"""Math scoring, data audit, and formal baseline evaluation."""
+"""Math scoring, data audit, formal evaluation, and result comparison."""
 
 from __future__ import annotations
 
@@ -562,7 +562,7 @@ def _write_error_analysis(
     rows: list[dict[str, Any]],
 ) -> None:
     lines = [
-        "# Formal Baseline Error Analysis",
+        "# Formal Evaluation Error Analysis",
         "",
         "## Overall Results",
         "",
@@ -636,13 +636,23 @@ def _write_error_analysis(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def run_formal_evaluation(config_path: Path) -> None:
+def run_formal_evaluation(
+    config_path: Path,
+    adapter_path: Path | None = None,
+    output_override: Path | None = None,
+    summary_output_override: Path | None = None,
+    error_analysis_output_override: Path | None = None,
+) -> None:
     config = _load_yaml(config_path)
     model_name = str(_required_config_value(config, "model_name"))
     eval_file = Path(str(_required_config_value(config, "eval_file")))
-    output_path = Path(str(_required_config_value(config, "output_path")))
-    summary_path = Path(str(_required_config_value(config, "summary_path")))
-    error_analysis_path = Path(str(_required_config_value(config, "error_analysis_path")))
+    output_path = output_override or Path(str(_required_config_value(config, "output_path")))
+    summary_path = summary_output_override or Path(
+        str(_required_config_value(config, "summary_path"))
+    )
+    error_analysis_path = error_analysis_output_override or Path(
+        str(_required_config_value(config, "error_analysis_path"))
+    )
     prompt_template = str(_required_config_value(config, "prompt_template"))
     max_eval_samples = int(config.get("max_eval_samples", 200))
     max_new_tokens = int(config.get("max_new_tokens", 2048))
@@ -679,6 +689,17 @@ def run_formal_evaluation(config_path: Path) -> None:
         device_map="auto",
         low_cpu_mem_usage=True,
     )
+    evaluated_model_name = model_name
+    if adapter_path is not None:
+        if not adapter_path.exists():
+            raise FileNotFoundError(f"LoRA adapter not found: {adapter_path}")
+        try:
+            from peft import PeftModel
+        except ImportError as exc:
+            raise RuntimeError("PEFT is required to evaluate a LoRA adapter.") from exc
+        print(f"Loading LoRA adapter: {adapter_path}")
+        model = PeftModel.from_pretrained(model, str(adapter_path))
+        evaluated_model_name = f"{model_name} + LoRA({adapter_path})"
     model.eval()
 
     generation_kwargs: dict[str, Any] = {
@@ -694,7 +715,7 @@ def run_formal_evaluation(config_path: Path) -> None:
     results: list[dict[str, Any]] = []
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    for index, row in enumerate(tqdm(rows, desc="Formal baseline evaluation"), start=1):
+    for index, row in enumerate(tqdm(rows, desc="Formal evaluation"), start=1):
         problem = str(_row_value(row, "problem", "question", "prompt"))
         user_prompt = _render_prompt(prompt_template, problem)
         chat_text = tokenizer.apply_chat_template(
@@ -716,12 +737,103 @@ def run_formal_evaluation(config_path: Path) -> None:
         # Keep the required output file valid and recoverable during a long remote run.
         _write_json(output_path, results)
 
-    summary = _build_summary(results, model_name, str(eval_file))
+    summary = _build_summary(results, evaluated_model_name, str(eval_file))
     _write_json(summary_path, summary)
     _write_error_analysis(error_analysis_path, summary, results)
     print(f"Wrote {output_path}")
     print(f"Wrote {summary_path}")
     print(f"Wrote {error_analysis_path}")
+
+
+def _load_json(path: Path) -> Any:
+    with path.open("r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+def _summary_path_for_eval(eval_path: Path) -> Path:
+    name = eval_path.name
+    if name.endswith("_eval.json"):
+        return eval_path.with_name(name[: -len("_eval.json")] + "_summary.json")
+    return eval_path.with_name(eval_path.stem + "_summary.json")
+
+
+def _load_or_build_comparison_summary(
+    eval_path: Path,
+    rows: list[dict[str, Any]],
+) -> tuple[Path, dict[str, Any]]:
+    summary_path = _summary_path_for_eval(eval_path)
+    if summary_path.exists():
+        summary = _load_json(summary_path)
+        if not isinstance(summary, dict):
+            raise ValueError(f"Summary must contain a JSON object: {summary_path}")
+        return summary_path, summary
+    return summary_path, _build_summary(rows, "unknown", "unknown")
+
+
+def compare_evaluations(baseline_path: Path, current_path: Path, output_path: Path) -> None:
+    baseline_rows = _load_json(baseline_path)
+    current_rows = _load_json(current_path)
+    if not isinstance(baseline_rows, list) or not isinstance(current_rows, list):
+        raise ValueError("Baseline and current evaluation files must contain JSON arrays.")
+
+    baseline_summary_path, baseline_summary = _load_or_build_comparison_summary(
+        baseline_path, baseline_rows
+    )
+    current_summary_path, current_summary = _load_or_build_comparison_summary(
+        current_path, current_rows
+    )
+
+    baseline_by_id = {str(row.get("id")): row for row in baseline_rows}
+    current_by_id = {str(row.get("id")): row for row in current_rows}
+    shared_ids = set(baseline_by_id) & set(current_by_id)
+    improved_case_count = sum(
+        not bool(baseline_by_id[row_id].get("is_correct"))
+        and bool(current_by_id[row_id].get("is_correct"))
+        for row_id in shared_ids
+    )
+    regressed_case_count = sum(
+        bool(baseline_by_id[row_id].get("is_correct"))
+        and not bool(current_by_id[row_id].get("is_correct"))
+        for row_id in shared_ids
+    )
+
+    baseline_accuracy = float(baseline_summary.get("accuracy", 0.0))
+    current_accuracy = float(current_summary.get("accuracy", 0.0))
+    baseline_boxed_rate = float(baseline_summary.get("boxed_answer_rate", 0.0))
+    current_boxed_rate = float(current_summary.get("boxed_answer_rate", 0.0))
+    baseline_extraction_rate = float(
+        baseline_summary.get("extraction_success_rate", 0.0)
+    )
+    current_extraction_rate = float(
+        current_summary.get("extraction_success_rate", 0.0)
+    )
+
+    comparison = {
+        "baseline_summary": str(baseline_summary_path),
+        "lora_summary": str(current_summary_path),
+        "baseline_accuracy": baseline_accuracy,
+        "lora_accuracy": current_accuracy,
+        "accuracy_delta": current_accuracy - baseline_accuracy,
+        "baseline_boxed_answer_rate": baseline_boxed_rate,
+        "lora_boxed_answer_rate": current_boxed_rate,
+        "boxed_answer_rate_delta": current_boxed_rate - baseline_boxed_rate,
+        "baseline_extraction_success_rate": baseline_extraction_rate,
+        "lora_extraction_success_rate": current_extraction_rate,
+        "extraction_success_rate_delta": (
+            current_extraction_rate - baseline_extraction_rate
+        ),
+        "baseline_error_type_distribution": baseline_summary.get(
+            "error_type_distribution", {}
+        ),
+        "lora_error_type_distribution": current_summary.get(
+            "error_type_distribution", {}
+        ),
+        "improved_case_count": improved_case_count,
+        "regressed_case_count": regressed_case_count,
+        "shared_case_count": len(shared_ids),
+    }
+    _write_json(output_path, comparison)
+    print(f"Wrote {output_path}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -734,7 +846,26 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Audit a JSONL evaluation file.",
     )
-    parser.add_argument("--config", default=None, help="Stage 3 formal evaluation config path.")
+    parser.add_argument("--config", default=None, help="Formal evaluation config path.")
+    parser.add_argument(
+        "--adapter_path",
+        default=None,
+        help="Optional LoRA adapter directory. Omit it to evaluate the base model.",
+    )
+    parser.add_argument("--output", default=None, help="Evaluation or comparison output path.")
+    parser.add_argument(
+        "--summary_output",
+        default=None,
+        help="Optional formal evaluation summary output override.",
+    )
+    parser.add_argument(
+        "--error_analysis_output",
+        default=None,
+        help="Optional formal evaluation error analysis output override.",
+    )
+    parser.add_argument("--compare", action="store_true", help="Compare two evaluation files.")
+    parser.add_argument("--baseline", default=None, help="Baseline evaluation JSON path.")
+    parser.add_argument("--current", default=None, help="Current evaluation JSON path.")
     return parser.parse_args()
 
 
@@ -749,11 +880,27 @@ def main() -> None:
         audit_data(Path(args.audit_data))
         return
 
-    if args.config:
-        run_formal_evaluation(Path(args.config))
+    if args.compare:
+        if not args.baseline or not args.current or not args.output:
+            raise SystemExit("--compare requires --baseline, --current, and --output.")
+        compare_evaluations(Path(args.baseline), Path(args.current), Path(args.output))
         return
 
-    raise SystemExit("Choose --test_evaluator, --audit_data, or --config.")
+    if args.config:
+        run_formal_evaluation(
+            Path(args.config),
+            adapter_path=Path(args.adapter_path) if args.adapter_path else None,
+            output_override=Path(args.output) if args.output else None,
+            summary_output_override=(
+                Path(args.summary_output) if args.summary_output else None
+            ),
+            error_analysis_output_override=(
+                Path(args.error_analysis_output) if args.error_analysis_output else None
+            ),
+        )
+        return
+
+    raise SystemExit("Choose --test_evaluator, --audit_data, --config, or --compare.")
 
 
 if __name__ == "__main__":
