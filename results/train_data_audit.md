@@ -1,0 +1,235 @@
+# Training Data Audit
+
+## Summary
+
+- train_file: data/processed/train_number_theory_sft_5k.jsonl
+- total: 5000
+- empty_problem_count: 0
+- empty_solution_count: 0
+- empty_answer_count: 0
+- avg_problem_length: 235.0366
+- avg_solution_length: 959.5308
+- avg_answer_length: 9.9432
+- very_long_solution_count: 0
+- very_short_solution_count: 0
+- repeated_solution_like_count: 27
+- answer_not_in_solution_count: 984
+- malformed_answer_count: 0
+- non_english_or_mixed_count: 30
+
+## Sample Records
+
+### numina-6-a15c8b87b7054511
+
+- problem: Problem 3. Find all the triples of integers $(a, b, c)$ such that the number $$ N=\frac{(a-b)(b-c)(c-a)}{2}+2 $$ is a power of 2016 . (A power of 2016 is an integer of the form $2016^{n}$, where $n$ is a non-negative integer.)
+- solution: Solution. Let $a, b, c$ be integers and $n$ be a positive integer such that
+
+$$
+(a-b)(b-c)(c-a)+4=2 \cdot 2016^{n}
+$$
+
+We set $a-b=-x, b-c=-y$ and we rewrite the equation as
+
+$$
+x y(x+y)+4=2 \cdot 2016^{n}
+$$
+
+If $n>0$, then the right hand side is divisible by 7 , so we have that
+
+$$
+x y(x+y)+4 \equiv 0 \quad(\bmod 7)
+$$
+
+or
+
+$$
+3 x y(x+y) \equiv 2 \quad(\bmod 7)
+$$
+
+or
+
+$$
+(x+y)^{3}-x^{3}-y^{3} \equiv 2 \quad(\bmod 7)
+$$
+
+Note that, by Fermat's Little Theorem, for any integer $k$ the cubic resi
+- answer: (,b,)=(k+2,k+1,k),k\in\mathbb{Z}
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter
+
+### numina-12-5c9465e4b567100d
+
+- problem: ## Problem 4 Find all positive integers $x, y, z$ and $t$ such that $$ 2^{x} \cdot 3^{y}+5^{z}=7^{t} $$
+- solution: ## Solution
+
+Reducing modulo 3 we get $5^{z} \equiv 1$, therefore $z$ is even, $z=2 c, c \in \mathbb{N}$.
+
+Next we prove that $t$ is even:
+
+Obviously, $t \geq 2$. Let us suppose that $t$ is odd, say $t=2 d+1, d \in \mathbb{N}$. The equation becomes $2^{x} \cdot 3^{y}+25^{c}=7 \cdot 49^{d}$. If $x \geq 2$, reducing modulo 4 we get $1 \equiv 3$, a contradiction. And if $x=1$, we have $2 \cdot 3^{y}+25^{c}=7 \cdot 49^{d}$ and reducing modulo 24 we obtain
+
+$$
+2 \cdot 3^{y}+1 \equiv 7 \Rightarrow 24 
+- answer: 3,1,=2
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter
+
+### numina-20-bb821a85f36fd876
+
+- problem: Problem 1. Find all distinct prime numbers $p, q$ and $r$ such that $$ 3 p^{4}-5 q^{4}-4 r^{2}=26 $$
+- solution: Solution. First notice that if both primes $q$ and $r$ differ from 3 , then $q^{2} \equiv r^{2} \equiv 1(\bmod 3)$, hence the left hand side of the given equation is congruent to zero modulo 3 , which is impossible since 26 is not divisible by 3 . Thus, $q=3$ or $r=3$. We consider two cases.
+
+Case 1. $q=3$.
+
+The equation reduces to $3 p^{4}-4 r^{2}=431$
+
+If $p \neq 5, \quad$ by Fermat's little theorem, $\quad p^{4} \equiv 1(\bmod 5)$, which yields $3-4 r^{2} \equiv 1(\bmod 5), \quad$ or equivale
+- answer: p=5,q=3,r=19
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter
+
+### numina-27-7aa268508a37f03b
+
+- problem: ## Problem 1. Find all pairs $(a, b)$ of positive integers such that $a!+b$ and $b!+a$ are both powers of 5 .
+- solution: Solution. The condition is symmetric so we can assume that $b \leq a$.
+
+The first case is when $a=b$. In this case, $a!+a=5^{m}$ for some positive integer $m$. We can rewrite this as $a \cdot((a-1)!+1)=5^{m}$. This means that $a=5^{k}$ for some integer $k \geq 0$. It is clear that $k$ cannot be 0 . If $k \geq 2$, then $(a-1)!+1=5^{l}$ for some $l \geq 1$, but $a-1=5^{k}-1>5$, so $5 \mid(a-1)$ !, which is not possible because $5 \mid(a-1)!+1$. This means that $k=1$ and $a=5$. In this case, $5!+5=
+- answer: (1,4),(4,1),(5,5)
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter
+
+### numina-34-3c512be5a0766bfd
+
+- problem: Problem 4. Find all pairs $(p, q)$ of prime numbers such that $$ 1+\frac{p^{q}-q^{p}}{p+q} $$ is a prime number.
+- solution: Solution. It is clear that $p \neq q$. We set
+
+$$
+1+\frac{p^{q}-q^{p}}{p+q}=r
+$$
+
+and we have that
+
+$$
+p^{q}-q^{p}=(r-1)(p+q)
+$$
+
+From Fermat's Little Theorem we have
+
+$$
+p^{q}-q^{p} \equiv-q \quad(\bmod p)
+$$
+
+Since we also have that
+
+$$
+(r-1)(p+q) \equiv-r q-q \quad(\bmod p)
+$$
+
+from (3) we get that
+
+$$
+r q \equiv 0 \quad(\bmod p) \Rightarrow p \mid q r
+$$
+
+hence $p \mid r$, which means that $p=r$. Therefore, (3) takes the form
+
+$$
+p^{q}-q^{p}=(p-1)(p+q)
+$$
+
+We will prove that $p=2$. Indeed, i
+- answer: (2,5)
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter
+
+### numina-38-2f744ab7b948be50
+
+- problem: Problem 1. Find all prime numbers $a, b, c$ and positive integers $k$ which satisfy the equation $$ a^{2}+b^{2}+16 \cdot c^{2}=9 \cdot k^{2}+1 $$
+- solution: # Solution: 
+
+The relation $9 \cdot k^{2}+1 \equiv 1(\bmod 3)$ implies
+
+$$
+a^{2}+b^{2}+16 \cdot c^{2} \equiv 1(\bmod 3) \Leftrightarrow a^{2}+b^{2}+c^{2} \equiv 1(\bmod 3)
+$$
+
+Since $a^{2} \equiv 0,1(\bmod 3), \quad b^{2} \equiv 0,1(\bmod 3), c^{2} \equiv 0,1(\bmod 3)$, we have:
+
+| $a^{2}$ | 0 | 0 | 0 | 0 | 1 | 1 | 1 | 1 |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| $b^{2}$ | 0 | 0 | 1 | 1 | 0 | 0 | 1 | 1 |
+| $c^{2}$ | 0 | 1 | 0 | 1 | 0 | 1 | 0 | 1 |
+| $a^{2}+b^{2
+- answer: (37,3,3,13),(17,3,3,7),(3,37,3,13),(3,17,3,7),(3,3,2,3)
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter
+
+### numina-55-566164d7d25edf5a
+
+- problem: NT3. Find all pairs of positive integers $(x, y)$ such that $2^{x}+3^{y}$ is a perfect square.
+- solution: Solution. In order for the expression $2^{x}+3^{y}$ to be a perfect square, a positive integer $t$ such that $2^{x}+3^{y}=t^{2}$ should exist.
+
+Case 1. If $x$ is even, then there exists a positive integer $z$ such that $x=2 z$. Then
+
+$$
+\left(t-2^{z}\right)\left(t+2^{z}\right)=3^{y}
+$$
+
+Since $t+2^{z}-\left(t-2^{z}\right)=2^{z+1}$, which implies $g c d\left(t-2^{z}, t+2^{z}\right) \mid 2^{z+1}$, it follows that $\operatorname{gcd}\left(t-2^{z}, t+\right.$ $\left.2^{z}\right)=1$, hence $t-2^{z}=1
+- answer: (4,2)
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter
+
+### numina-56-5f0f77928cf48de8
+
+- problem: NT4. Solve in nonnegative integers the equation $5^{t}+3^{x} 4^{y}=z^{2}$.
+- solution: Solution. If $x=0$ we have
+
+$$
+z^{2}-2^{2 y}=5^{t} \Longleftrightarrow\left(z+2^{y}\right)\left(z-2^{y}\right)=5^{t}
+$$
+
+Putting $z+2^{y}=5^{a}$ and $z-2^{y}=5^{b}$ with $a+b=t$ we get $5^{a}-5^{b}=2^{y+1}$. This gives us $b=0$ and now we have $5^{t}-1=2^{y+1}$. If $y \geq 2$ then consideration by modulo 8 gives $2 \mid t$. Putting $t=2 s$ we get $\left(5^{s}-1\right)\left(5^{s}+1\right)=2^{y+1}$. This means $5^{s}-1=2^{c}$ and $5^{s}+1=2^{d}$ with $c+d=y+1$. Subtracting we get $2=2^{d}-2^{c}$. 
+- answer: (,x,y,z)=(1,0,1,3),(0,1,0,2),(2,2,2,13),(0,1,2,7)
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter
+
+### numina-57-a8887f05e5da55f6
+
+- problem: NT5. Find all positive integers $n$ such that there exists a prime number $p$, such that $$ p^{n}-(p-1)^{n} $$ is a power of 3 . Note. A power of 3 is a number of the form $3^{a}$ where $a$ is a positive integer.
+- solution: Solution. Suppose that the positive integer $n$ is such that
+
+$$
+p^{n}-(p-1)^{n}=3^{a}
+$$
+
+for some prime $p$ and positive integer $a$.
+
+If $p=2$, then $2^{n}-1=3^{a}$ by $(1)$, whence $(-1)^{n}-1 \equiv 0(\bmod 3)$, so $n$ should be even. Setting $n=2 s$ we obtain $\left(2^{s}-1\right)\left(2^{s}+1\right)=3^{a}$. It follows that $2^{s}-1$ and $2^{s}+1$ are both powers of 3 , but since they are both odd, they are co-prime, and we have $2^{s}-1=1$, i.e. $s=1$ and $n=2$. If $p=3$, then (1) gives $
+- answer: 2
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter
+
+### numina-67-597fc8c5821e9792
+
+- problem: NT5. Find all the positive integers $x, y, z, t$ such that $2^{x} \cdot 3^{y}+5^{z}=7^{t}$.
+- solution: Solution. Reducing modulo 3 we get $5^{z} \equiv 1$, therefore $z$ is even, $z=2 c, c \in \mathbb{N}$. .
+
+Next we prove that $t$ is even. Obviously, $t \geq 2$. Let us suppose that $t$ is odd, $t=2 d+1$, $d \in \mathbb{N}$. The equation becomes $2^{x} \cdot 3^{y}+25^{c}=7 \cdot 49^{d}$.
+
+If $x \geq 2$, reducing modulo 4 , we get $1 \equiv 3$, contradiction.
+
+For $x=1$, we have $2 \cdot 3^{y}+25^{c}=7 \cdot 49^{d}$; and, reducing modulo 24 , we obtain $2 \cdot 3^{y}+1 \equiv$ $7 \Rightarrow 24 \m
+- answer: 3,1,=2
+- problem_type: Number Theory
+- question_type: math-word-problem
+- selection_method: field_filter

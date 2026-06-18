@@ -1,0 +1,55 @@
+{
+  "status": "completed",
+  "model_name": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+  "train_file": "data/processed/train_number_theory_sft_5k.jsonl",
+  "output_dir": "outputs/lora_sft_number_theory_safe",
+  "max_train_samples": 1000,
+  "num_train_samples_used": 1000,
+  "max_seq_len": 2048,
+  "min_assistant_tokens": 256,
+  "lora_r": 8,
+  "lora_alpha": 16,
+  "target_modules": [
+    "q_proj",
+    "v_proj",
+    "o_proj"
+  ],
+  "learning_rate": 2e-05,
+  "num_train_epochs": 1.0,
+  "effective_batch_size": 16,
+  "train_on_assistant_only": true,
+  "force_boxed_answer": true,
+  "loss": [
+    {
+      "step": 10,
+      "loss": 1.1791476249694823
+    },
+    {
+      "step": 20,
+      "loss": 1.229025173187256
+    },
+    {
+      "step": 30,
+      "loss": 1.2586523056030274
+    },
+    {
+      "step": 40,
+      "loss": 1.177419948577881
+    },
+    {
+      "step": 50,
+      "loss": 1.2197006225585938
+    },
+    {
+      "step": 60,
+      "loss": 1.2229629516601563
+    }
+  ],
+  "start_time": "2026-06-18T11:22:49.522212+00:00",
+  "end_time": "2026-06-18T11:24:47.057023+00:00",
+  "skipped_invalid_sample_count": 0,
+  "truncated_prompt_samples": 0,
+  "truncated_assistant_samples": 1,
+  "final_train_loss": 1.2159797237032937,
+  "global_step": 63
+}

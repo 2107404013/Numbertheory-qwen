@@ -1,0 +1,27 @@
+{
+  "baseline_summary": "results/number_theory_baseline_summary.json",
+  "lora_summary": "results/lora_sft_summary.json",
+  "baseline_accuracy": 0.275,
+  "lora_accuracy": 0.295,
+  "accuracy_delta": 0.019999999999999962,
+  "baseline_boxed_answer_rate": 0.885,
+  "lora_boxed_answer_rate": 0.91,
+  "boxed_answer_rate_delta": 0.025000000000000022,
+  "baseline_extraction_success_rate": 0.885,
+  "lora_extraction_success_rate": 0.915,
+  "extraction_success_rate_delta": 0.030000000000000027,
+  "baseline_error_type_distribution": {
+    "correct": 55,
+    "extraction_error": 23,
+    "model_error": 122
+  },
+  "lora_error_type_distribution": {
+    "correct": 59,
+    "extraction_error": 17,
+    "format_error": 1,
+    "model_error": 123
+  },
+  "improved_case_count": 9,
+  "regressed_case_count": 5,
+  "shared_case_count": 200
+}
