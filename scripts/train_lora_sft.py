@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 from datetime import datetime, timezone
@@ -196,6 +197,34 @@ def _write_train_log(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _compatible_training_arguments(training_arguments_class: Any, **kwargs: Any) -> Any:
+    """Build TrainingArguments while tolerating optional API differences."""
+    supported = set(inspect.signature(training_arguments_class.__init__).parameters)
+    required_keys = {
+        "output_dir",
+        "num_train_epochs",
+        "per_device_train_batch_size",
+        "gradient_accumulation_steps",
+        "learning_rate",
+        "bf16",
+    }
+    unsupported_required = sorted(key for key in required_keys if key not in supported)
+    if unsupported_required:
+        raise RuntimeError(
+            "Installed Transformers TrainingArguments is incompatible; missing required "
+            f"arguments: {', '.join(unsupported_required)}"
+        )
+
+    compatible_kwargs = {key: value for key, value in kwargs.items() if key in supported}
+    ignored_kwargs = sorted(set(kwargs) - set(compatible_kwargs))
+    if ignored_kwargs and int(os.environ.get("RANK", "0")) == 0:
+        print(
+            "Ignoring unsupported optional TrainingArguments: "
+            + ", ".join(ignored_kwargs)
+        )
+    return training_arguments_class(**compatible_kwargs)
+
+
 def train(config_path: Path) -> None:
     config = _load_yaml(config_path)
     model_name = str(_required(config, "model_name"))
@@ -281,9 +310,9 @@ def train(config_path: Path) -> None:
         model = get_peft_model(model, lora_config)
         model.print_trainable_parameters()
 
-        training_args = TrainingArguments(
+        training_args = _compatible_training_arguments(
+            TrainingArguments,
             output_dir=str(output_dir),
-            overwrite_output_dir=False,
             num_train_epochs=float(config.get("num_train_epochs", 1)),
             per_device_train_batch_size=per_device_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,

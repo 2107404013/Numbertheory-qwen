@@ -256,6 +256,8 @@ Stage 5 本地实现包括：
 - 超长样本会保留 chat 边界并为 assistant 预留至少 256 token，截断统计写入训练日志。
 - chat template 生成 system/user 与 assistant 起始标记，solution 单独编码拼接，避免部分
   Transformers/tokenizer 版本省略完整对话中的 assistant 内容。
+- 构造 `TrainingArguments` 时检查当前 Transformers API；核心参数缺失则明确报错，版本
+  不支持的非必要可选参数会被忽略，避免因 API 差异中断训练。
 - 支持使用 `torchrun --nproc_per_node=2` 在两张 GPU 上进行分布式训练；只有主进程保存
   adapter、tokenizer 和最终训练日志。
 - adapter 输出到 `outputs/lora_sft_number_theory`，训练日志输出到
