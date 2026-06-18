@@ -14,6 +14,14 @@ Stage 2 会在远端服务器生成正式评测集：
 - `results/public_eval_manifest.json`
 - `results/evaluator_audit.md`
 
-训练集会由 Stage 4 生成，第一版规模为 5k 数论样本。
+Stage 4 会从 `AI-MO/NuminaMath-1.5` 生成第一版 5000 条 Number Theory SFT 训练数据：
+
+- `data/processed/train_number_theory_sft_5k.jsonl`
+
+训练集必须与 `data/processed/public_number_theory_eval.jsonl` 中固定的 200 道正式评测题
+进行精确和近似去重。训练数据本体不提交 GitHub，只提交
+`results/train_data_summary.json` 记录筛选与去重统计。
+
+后续只有在 LoRA SFT 相对正式 baseline 确认提升后，才会把训练规模扩展到 10000 条。
 
 不要手动上传大数据、模型权重或 Hugging Face cache 到 GitHub。

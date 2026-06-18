@@ -91,6 +91,25 @@ Baseline 准确率用于判断后续实验空间：
 - 高于 70%：评测集可能偏简单，需要在不改动本轮正式结果的前提下重新审视难度设计。
 - 低于 15%：评测集可能偏难，需要先检查数据、答案抽取和评分协议。
 
+本项目正式 baseline 的 Final Answer Accuracy 为 27.5%（55/200），处于适合继续训练和对比提升的区间。
+
+## Training Data Preparation
+
+Stage 4 只准备 SFT 训练数据，不训练模型，也不运行模型推理。训练数据来自
+`AI-MO/NuminaMath-1.5` 的 Number Theory 子集，第一版目标规模为 5000 条。
+
+数据构建优先使用 `problem_type` 等领域字段筛选数论题，并进行题目、解答、答案有效性
+检查。训练题会与 Stage 2 固定的 200 道正式评测题进行 normalized exact match 和
+`SequenceMatcher >= 0.85` 的近似去重，防止评测泄漏。
+
+生成的训练文件为：
+
+- `data/processed/train_number_theory_sft_5k.jsonl`
+
+该文件不提交 GitHub。项目只提交轻量级统计文件
+`results/train_data_summary.json` 作为可复现记录。Stage 5 将使用这份训练集进行 LoRA
+SFT；确认相对 baseline 有提升后，再考虑扩展到 10000 条。
+
 ## 本地与远端运行规则
 
 本地 Windows 只用于 VSCode/Codex 编辑代码，不运行模型推理、训练、评测，也不下载模型权重。
@@ -111,5 +130,5 @@ Baseline 准确率用于判断后续实验空间：
 
 ## 当前阶段
 
-当前阶段：Stage 3 - Formal Baseline Evaluation。当前只实现并运行原始学生模型的正式
-baseline 评测，不训练模型，不修改正式评测集，不进入 Stage 4。
+当前阶段：Stage 4 - Prepare Number Theory SFT Data。当前只筛选、清洗并去重 5k 数论
+SFT 训练数据，不训练模型，不运行推理，不进入 Stage 5。

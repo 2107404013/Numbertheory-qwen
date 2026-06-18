@@ -46,15 +46,26 @@ NumberTheory-Qwen
 
 ## Current Stage
 
-Stage 3 - Formal Baseline Evaluation
+Stage 4 - Prepare Number Theory SFT Data
 
-## Stage 3 Goal
+## Stage 4 Goal
 
-- 在固定的 200 道正式数论评测集上评测 `Qwen/Qwen2.5-Math-1.5B-Instruct`。
-- 得到可供后续实验统一比较的正式 baseline。
-- 只运行模型推理，不训练、不更新模型参数。
-- 不修改 Stage 2 生成的正式 eval。
-- 后续所有训练模型都必须与该 baseline 使用同一份 eval 和评分协议。
+- 从 `AI-MO/NuminaMath-1.5` 中筛选 5k 条数论 SFT 训练数据。
+- 与固定的 200 道正式 eval 进行精确和近似去重。
+- 生成 `data/processed/train_number_theory_sft_5k.jsonl`。
+- 生成 `results/train_data_summary.json`。
+- 不训练，不推理，不下载 Qwen 权重。
+
+## Previous Stage
+
+- Stage 3 formal baseline completed。
+- Baseline model: `Qwen/Qwen2.5-Math-1.5B-Instruct`。
+- Total: 200。
+- Correct: 55。
+- Final Answer Accuracy: 0.275。
+- Boxed Answer Rate: 0.885。
+- Extraction Success Rate: 0.885。
+- 该 baseline 难度适合后续训练对比。
 
 ## Formal Evaluation Plan
 
@@ -86,10 +97,13 @@ Stage 3 - Formal Baseline Evaluation
 - Stage 2: 正式 eval 已在远端生成并通过审计，共 200 道 rule-based subset 数论题。
 - Stage 3: 实现 `scripts/eval_math.py --config configs/baseline_eval.yaml` 的正式 baseline
   推理、Math-Verify + fallback 评分、汇总指标和错误分析输出。
+- Stage 3: 正式 baseline 已在远端完成，Final Answer Accuracy 为 0.275（55/200）。
+- Stage 4: 实现 `scripts/prepare_data.py --mode build_train --max_train_samples 5000`。
+- Stage 4: 训练数据构建包含字段优先数论筛选、质量过滤、eval 精确及 0.85 近似去重。
 
 ## Next Stage
 
-Stage 4 - Prepare Number Theory SFT Data。只有在用户确认 Stage 3 baseline 结果完成并保存后才能进入。
+Stage 5 - LoRA SFT。只有在用户确认 Stage 4 训练数据结果合格并保存后才能进入。
 
 ## Git Rule
 
