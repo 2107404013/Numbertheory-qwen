@@ -112,30 +112,30 @@ SFT；确认相对 baseline 有提升后，再考虑扩展到 10000 条。
 
 ## LoRA SFT
 
-Stage 5 使用 `AI-MO/NuminaMath-1.5` 的 5000 条 Number Theory +
-math-word-problem 数据，对 `Qwen/Qwen2.5-Math-1.5B-Instruct` 进行 LoRA SFT。
-本阶段只训练 LoRA adapter，不做全参数微调，主要目标是提升数论推理能力和最终答案正确率。
+Stage 5 初始 LoRA SFT 已作为失败实验保留。固定 200 题评测结果为：
 
-训练文本通过 tokenizer 的 `apply_chat_template` 构造为 system、user、assistant 三段对话，
-并将 system/user token 的 label 设为 `-100`，只对 assistant solution 部分计算 causal LM
-loss。对于超过 `max_seq_len` 的样本，训练脚本会保留 chat 前后边界并为 assistant
-预留至少 256 个 token，避免长题目把解答部分完全截掉；实际截断数量会写入训练日志。
-chat template 负责生成 system/user 和 assistant 起始标记，solution 单独编码后拼接，以兼容
-不同 Transformers 版本对完整 assistant 对话渲染行为的差异。
-如果旧版 tokenizer 的 `apply_chat_template(tokenize=True)` 仍返回字符串，脚本会再显式
-tokenize，并统一处理普通列表、嵌套列表、tensor 和 `BatchEncoding` 输出，确保 collator
-只接收整数 token ID。
-训练参数也会检查当前 `TrainingArguments` 的函数签名：核心训练参数必须受支持，非必要且
-在当前 Transformers 版本中不存在的可选参数会被忽略并打印提示。
-训练数据主要来自英文数学数据，因此本阶段不要求中文解题风格完全统一；Stage 6
-再使用 `Qwen/Qwen2.5-Math-7B-Instruct` 生成中文竞赛教练风格解法。
+- accuracy: 0.0
+- boxed_answer_rate: 0.035
+- extraction_success_rate: 0.035
+- main issue: answer-format collapse and possible ability degradation
 
-LoRA adapter 保存到：
+可能原因包括 NuminaMath solution 多为英文长解答、训练时没有强制 boxed answer、训练格式
+与评测格式不一致、对过多文本模式的学习破坏 instruction-following，以及初始学习率和
+LoRA target modules 偏激进。初始失败 adapter 保留在远端，不提交 GitHub。
 
-- `outputs/lora_sft_number_theory`
+Stage 5.1 先审计固定 5k 训练数据，再运行 1000 条安全 pilot，而不是立即重跑完整 5k：
 
-该目录、训练 checkpoint 和模型权重均由 `.gitignore` 排除，不上传 GitHub。训练日志写入
-`results/lora_sft_train_log.json`。
+- 使用 Qwen chat template。
+- system/user labels 全部设为 `-100`，只计算 assistant loss。
+- 每条 assistant 解答末尾强制追加 `最终答案：\boxed{answer}`。
+- 截断 solution 时始终保留 boxed 最终答案。
+- 学习率降至 `2e-5`。
+- LoRA 只训练 `q_proj`、`v_proj`、`o_proj`，使用 `r=8`、`alpha=16`。
+- pilot adapter 保存到 `outputs/lora_sft_number_theory_safe`。
+
+训练日志写入 `results/lora_sft_train_log.json`。训练数据主要来自英文数学数据，Stage 5.1
+的目标首先是恢复稳定推理、指令遵循和最终答案格式，不要求中文风格完全统一。只有安全
+pilot 在固定 200 题 eval 上不再崩溃，才允许把 `max_train_samples` 从 1000 改为 5000。
 
 训练完成后必须继续使用 Stage 2 固定的
 `data/processed/public_number_theory_eval.jsonl`（200 道）和 Stage 3 相同评分协议评测，
@@ -163,5 +163,5 @@ Rate 和 Extraction Success Rate。若 LoRA 没有提升，必须如实保留结
 
 ## 当前阶段
 
-当前阶段：Stage 5 - LoRA SFT。当前实现使用固定 5k 数论训练数据训练 LoRA adapter，
-并在固定 200 道正式 eval 上与 Stage 3 baseline 对比；不进入 Stage 6。
+当前阶段：Stage 5.1 - Fix LoRA SFT。当前只进行训练数据审计、1000 条安全 pilot 和固定
+200 题评测；不进入 Stage 6。

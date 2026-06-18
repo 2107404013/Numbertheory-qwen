@@ -40,6 +40,8 @@ MANIFEST_FILE = RESULTS_DIR / "public_eval_manifest.json"
 TRAIN_SOURCE = "AI-MO/NuminaMath-1.5"
 TRAIN_FILE = DATA_PROCESSED_DIR / "train_number_theory_sft_5k.jsonl"
 TRAIN_SUMMARY_FILE = RESULTS_DIR / "train_data_summary.json"
+TRAIN_AUDIT_JSON = RESULTS_DIR / "train_data_audit.json"
+TRAIN_AUDIT_MD = RESULTS_DIR / "train_data_audit.md"
 MIN_TRAIN_PROBLEM_LENGTH = 20
 MIN_TRAIN_SOLUTION_LENGTH = 80
 MAX_TRAIN_SOLUTION_LENGTH = 12000
@@ -170,6 +172,154 @@ def _compact_text(value: Any) -> str:
 def _clean_multiline_text(value: Any) -> str:
     text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     return re.sub(r"\n{3,}", "\n\n", text)
+
+
+def _read_local_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as file:
+        for line_no, line in enumerate(file, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSONL at {path}:{line_no}") from exc
+            if not isinstance(row, dict):
+                raise ValueError(f"Expected a JSON object at {path}:{line_no}")
+            rows.append(row)
+    return rows
+
+
+def _has_repeated_solution_paragraph(solution: str) -> bool:
+    paragraphs = [
+        re.sub(r"\s+", " ", paragraph).strip().lower()
+        for paragraph in re.split(r"\n\s*\n", solution)
+        if len(re.sub(r"\s+", " ", paragraph).strip()) >= 80
+    ]
+    seen: set[str] = set()
+    for paragraph in paragraphs:
+        normalized = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", paragraph)
+        if len(normalized) >= 60 and normalized in seen:
+            return True
+        seen.add(normalized)
+
+    sentences = [
+        re.sub(r"\s+", " ", sentence).strip().lower()
+        for sentence in re.split(r"(?<=[.!?。！？])\s+", solution)
+        if len(re.sub(r"\s+", " ", sentence).strip()) >= 100
+    ]
+    return len(sentences) != len(set(sentences))
+
+
+def _answer_is_malformed(answer: str) -> bool:
+    normalized = answer.strip().lower()
+    return (
+        not normalized
+        or normalized in INVALID_TRAIN_ANSWERS
+        or len(answer) > 220
+        or answer.count("\n") >= 2
+    )
+
+
+def audit_train_data(train_file: Path) -> None:
+    if not train_file.exists():
+        raise FileNotFoundError(f"Training file not found: {train_file}")
+    rows = _read_local_jsonl(train_file)
+
+    stats: dict[str, Any] = {
+        "train_file": str(train_file),
+        "total": len(rows),
+        "empty_problem_count": 0,
+        "empty_solution_count": 0,
+        "empty_answer_count": 0,
+        "avg_problem_length": 0.0,
+        "avg_solution_length": 0.0,
+        "avg_answer_length": 0.0,
+        "very_long_solution_count": 0,
+        "very_short_solution_count": 0,
+        "repeated_solution_like_count": 0,
+        "answer_not_in_solution_count": 0,
+        "malformed_answer_count": 0,
+        "non_english_or_mixed_count": 0,
+    }
+    problem_lengths: list[int] = []
+    solution_lengths: list[int] = []
+    answer_lengths: list[int] = []
+    examples: list[dict[str, Any]] = []
+
+    for index, row in enumerate(rows):
+        problem = _clean_multiline_text(row.get("problem"))
+        solution = _clean_multiline_text(row.get("solution"))
+        answer = _clean_multiline_text(row.get("answer"))
+        problem_lengths.append(len(problem))
+        solution_lengths.append(len(solution))
+        answer_lengths.append(len(answer))
+
+        stats["empty_problem_count"] += not bool(problem)
+        stats["empty_solution_count"] += not bool(solution)
+        stats["empty_answer_count"] += not bool(answer)
+        stats["very_long_solution_count"] += len(solution) > 8000
+        stats["very_short_solution_count"] += 0 < len(solution) < MIN_TRAIN_SOLUTION_LENGTH
+        stats["repeated_solution_like_count"] += _has_repeated_solution_paragraph(solution)
+        stats["malformed_answer_count"] += _answer_is_malformed(answer)
+
+        answer_key = normalize_problem_for_dedup(answer)
+        solution_key = normalize_problem_for_dedup(solution)
+        if answer_key and answer_key not in solution_key:
+            stats["answer_not_in_solution_count"] += 1
+
+        has_ascii_letters = bool(re.search(r"[A-Za-z]", solution))
+        has_cjk = bool(re.search(r"[\u4e00-\u9fff]", solution))
+        stats["non_english_or_mixed_count"] += has_cjk or not has_ascii_letters
+
+        if len(examples) < 10:
+            examples.append(
+                {
+                    "id": row.get("id", index),
+                    "problem": problem[:300],
+                    "solution": solution[:500],
+                    "answer": answer,
+                    "problem_type": row.get("problem_type", ""),
+                    "question_type": row.get("question_type", ""),
+                    "selection_method": row.get("selection_method", ""),
+                }
+            )
+
+    total = len(rows)
+    stats["avg_problem_length"] = sum(problem_lengths) / total if total else 0.0
+    stats["avg_solution_length"] = sum(solution_lengths) / total if total else 0.0
+    stats["avg_answer_length"] = sum(answer_lengths) / total if total else 0.0
+    stats["examples"] = examples
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    TRAIN_AUDIT_JSON.write_text(
+        json.dumps(stats, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    lines = ["# Training Data Audit", "", "## Summary", ""]
+    for key, value in stats.items():
+        if key != "examples":
+            lines.append(f"- {key}: {value}")
+    lines.extend(["", "## Sample Records", ""])
+    for example in examples:
+        lines.extend(
+            [
+                f"### {example['id']}",
+                "",
+                f"- problem: {example['problem']}",
+                f"- solution: {example['solution']}",
+                f"- answer: {example['answer']}",
+                f"- problem_type: {example['problem_type']}",
+                f"- question_type: {example['question_type']}",
+                f"- selection_method: {example['selection_method']}",
+                "",
+            ]
+        )
+    TRAIN_AUDIT_MD.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Wrote {TRAIN_AUDIT_JSON}")
+    print(f"Wrote {TRAIN_AUDIT_MD}")
 
 
 def _contains_any(value: Any, markers: list[str]) -> bool:
@@ -975,10 +1125,15 @@ def build_train_set(max_train_samples: int) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Prepare NumberTheory-Qwen datasets.")
-    parser.add_argument("--mode", choices=["inspect_public", "build_eval", "build_train"], required=True)
+    parser.add_argument(
+        "--mode",
+        choices=["inspect_public", "build_eval", "build_train", "audit_train"],
+        required=True,
+    )
     parser.add_argument("--max_eval_samples", type=int, default=200)
     parser.add_argument("--max_train_samples", type=int, default=5000)
     parser.add_argument("--candidate_scan_limit", type=int, default=20000)
+    parser.add_argument("--train_file", default=str(TRAIN_FILE))
     return parser.parse_args()
 
 
@@ -992,6 +1147,9 @@ def main() -> None:
         return
     if args.mode == "build_train":
         build_train_set(args.max_train_samples)
+        return
+    if args.mode == "audit_train":
+        audit_train_data(Path(args.train_file))
         return
 
     raise SystemExit(f"Unsupported mode: {args.mode}")

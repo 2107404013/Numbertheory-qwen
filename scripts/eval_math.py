@@ -836,6 +836,25 @@ def compare_evaluations(baseline_path: Path, current_path: Path, output_path: Pa
     print(f"Wrote {output_path}")
 
 
+def show_evaluation_samples(path: Path, limit: int) -> None:
+    rows = _load_json(path)
+    if not isinstance(rows, list):
+        raise ValueError(f"Evaluation file must contain a JSON array: {path}")
+    if limit < 1:
+        raise ValueError("--limit must be at least 1")
+
+    for row in rows[:limit]:
+        print("=" * 80)
+        print(f"id: {row.get('id', '')}")
+        print(f"is_correct: {row.get('is_correct', False)}")
+        print(f"error_type: {row.get('error_type', '')}")
+        print(f"pred_answer: {row.get('pred_answer') or '[empty]'}")
+        print(f"boxed_answer_found: {row.get('boxed_answer_found', False)}")
+        print(f"extraction_success: {row.get('extraction_success', False)}")
+        print("model_output:")
+        print(str(row.get("model_output") or "")[:1000])
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate NumberTheory-Qwen answers.")
     parser.add_argument("--test_evaluator", action="store_true", help="Run evaluator unit tests.")
@@ -866,6 +885,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--compare", action="store_true", help="Compare two evaluation files.")
     parser.add_argument("--baseline", default=None, help="Baseline evaluation JSON path.")
     parser.add_argument("--current", default=None, help="Current evaluation JSON path.")
+    parser.add_argument(
+        "--show_samples",
+        default=None,
+        help="Print a compact sample view from an evaluation JSON file.",
+    )
+    parser.add_argument("--limit", type=int, default=8, help="Sample count for --show_samples.")
     return parser.parse_args()
 
 
@@ -878,6 +903,10 @@ def main() -> None:
 
     if args.audit_data:
         audit_data(Path(args.audit_data))
+        return
+
+    if args.show_samples:
+        show_evaluation_samples(Path(args.show_samples), args.limit)
         return
 
     if args.compare:
@@ -900,7 +929,9 @@ def main() -> None:
         )
         return
 
-    raise SystemExit("Choose --test_evaluator, --audit_data, --config, or --compare.")
+    raise SystemExit(
+        "Choose --test_evaluator, --audit_data, --show_samples, --config, or --compare."
+    )
 
 
 if __name__ == "__main__":

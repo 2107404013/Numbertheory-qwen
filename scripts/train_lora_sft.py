@@ -13,6 +13,7 @@ from typing import Any
 
 
 SYSTEM_PROMPT = "你是一名高中数学竞赛数论教练。"
+INVALID_ANSWERS = {"proof", "notfound", "unknown", "none", "null", "n/a"}
 
 
 def _utc_now() -> str:
@@ -52,10 +53,6 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
                 raise ValueError(f"Invalid JSONL at {path}:{line_no}") from exc
             if not isinstance(row, dict):
                 raise ValueError(f"Expected a JSON object at {path}:{line_no}")
-            if not str(row.get("problem") or "").strip():
-                raise ValueError(f"Missing problem at {path}:{line_no}")
-            if not str(row.get("solution") or "").strip():
-                raise ValueError(f"Missing solution at {path}:{line_no}")
             rows.append(row)
     if not rows:
         raise ValueError(f"No training samples found in {path}")
@@ -107,10 +104,12 @@ class AssistantOnlyDataset:
         prompt_template: str,
         max_seq_len: int,
         min_assistant_tokens: int,
+        force_boxed_answer: bool,
     ) -> None:
         self.examples: list[dict[str, list[int]]] = []
         self.truncated_prompt_count = 0
         self.truncated_assistant_count = 0
+        self.skipped_invalid_sample_count = 0
 
         if min_assistant_tokens < 1 or min_assistant_tokens >= max_seq_len:
             raise ValueError(
@@ -118,8 +117,20 @@ class AssistantOnlyDataset:
             )
 
         for index, row in enumerate(rows, start=1):
-            problem = str(row["problem"]).strip()
-            solution = str(row["solution"]).strip()
+            problem = str(row.get("problem") or "").strip()
+            solution = str(row.get("solution") or "").strip()
+            answer = str(row.get("answer") or "").strip()
+            if (
+                not problem
+                or not solution
+                or not answer
+                or answer.lower() in INVALID_ANSWERS
+                or len(answer) > 220
+                or answer.count("\n") >= 2
+            ):
+                self.skipped_invalid_sample_count += 1
+                continue
+
             user_prompt = _render_user_prompt(prompt_template, problem)
             prompt_messages = [
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -131,56 +142,62 @@ class AssistantOnlyDataset:
                 add_generation_prompt=True,
             )
             prompt_ids = _as_token_ids(prompt_output, tokenizer, "chat template output")
-            assistant_text = solution
-            if tokenizer.eos_token and not assistant_text.endswith(tokenizer.eos_token):
-                assistant_text += tokenizer.eos_token
-            assistant_output = tokenizer(
-                assistant_text,
+            final_answer_text = f"\n\n最终答案：\\boxed{{{answer}}}"
+            solution_output = tokenizer(
+                solution,
                 add_special_tokens=False,
                 truncation=False,
             )["input_ids"]
-            assistant_ids = _as_token_ids(
-                assistant_output,
+            solution_ids = _as_token_ids(
+                solution_output,
                 tokenizer,
-                "assistant tokenizer output",
+                "solution tokenizer output",
             )
+            final_output = tokenizer(
+                final_answer_text,
+                add_special_tokens=False,
+                truncation=False,
+            )["input_ids"]
+            final_ids = _as_token_ids(
+                final_output,
+                tokenizer,
+                "final answer tokenizer output",
+            )
+            if tokenizer.eos_token_id is not None:
+                final_ids.append(int(tokenizer.eos_token_id))
 
             if not prompt_ids:
                 raise ValueError(
                     f"Tokenizer chat template produced no prompt tokens at sample {index}."
                 )
-            if not assistant_ids:
+            if not solution_ids or not final_ids:
                 raise ValueError(
                     f"Tokenizer produced no assistant solution tokens at sample {index}."
                 )
 
-            # The tokenizer chat template supplies the official system/user layout and
-            # assistant generation marker. Encoding the solution separately avoids
-            # version-dependent templates that omit assistant content when rendering
-            # a completed conversation.
-            if len(prompt_ids) + len(assistant_ids) > max_seq_len:
-                reserved_assistant = min(len(assistant_ids), min_assistant_tokens)
-                max_prompt_tokens = max_seq_len - reserved_assistant
+            # Reserve the final boxed answer first. Then allocate the remaining assistant
+            # budget to the solution so truncation can never remove the supervised answer.
+            minimum_response_budget = max(min_assistant_tokens, len(final_ids))
+            if len(prompt_ids) + minimum_response_budget > max_seq_len:
+                max_prompt_tokens = max_seq_len - minimum_response_budget
                 if len(prompt_ids) > max_prompt_tokens:
-                    # Preserve both the chat/system prefix and the end of the user turn,
-                    # including its role boundary and assistant generation marker.
                     prefix_tokens = min(64, max_prompt_tokens // 4)
                     suffix_tokens = max_prompt_tokens - prefix_tokens
                     prompt_ids = prompt_ids[:prefix_tokens] + prompt_ids[-suffix_tokens:]
                     self.truncated_prompt_count += 1
 
-            assistant_capacity = max_seq_len - len(prompt_ids)
-            retained_assistant_ids = assistant_ids[:assistant_capacity]
-            if len(retained_assistant_ids) < len(assistant_ids):
-                self.truncated_assistant_count += 1
-            if not retained_assistant_ids:
+            solution_capacity = max_seq_len - len(prompt_ids) - len(final_ids)
+            if solution_capacity < 1:
                 raise ValueError(
-                    f"Sample {index} has no retained assistant tokens at "
-                    f"max_seq_len={max_seq_len}."
+                    f"Sample {index} has no solution budget after reserving the boxed answer."
                 )
+            retained_solution_ids = solution_ids[:solution_capacity]
+            if len(retained_solution_ids) < len(solution_ids):
+                self.truncated_assistant_count += 1
 
-            input_ids = prompt_ids + retained_assistant_ids
-            labels = [-100] * len(prompt_ids) + retained_assistant_ids
+            assistant_ids = retained_solution_ids + final_ids
+            input_ids = prompt_ids + assistant_ids
+            labels = [-100] * len(prompt_ids) + assistant_ids
             self.examples.append(
                 {
                     "input_ids": input_ids,
@@ -188,6 +205,9 @@ class AssistantOnlyDataset:
                     "labels": labels,
                 }
             )
+
+        if not self.examples:
+            raise ValueError("No valid training samples remained after validation.")
 
     def __len__(self) -> int:
         return len(self.examples)
@@ -265,6 +285,13 @@ def train(config_path: Path) -> None:
     target_modules = list(_required(config, "target_modules"))
     max_seq_len = int(config.get("max_seq_len", 2048))
     min_assistant_tokens = int(config.get("min_assistant_tokens", 256))
+    max_train_samples = int(config.get("max_train_samples", 0))
+    train_on_assistant_only = bool(config.get("train_on_assistant_only", True))
+    force_boxed_answer = bool(config.get("force_boxed_answer", True))
+    if not train_on_assistant_only:
+        raise ValueError("Stage 5.1 requires train_on_assistant_only: true")
+    if not force_boxed_answer:
+        raise ValueError("Stage 5.1 requires force_boxed_answer: true")
     per_device_batch_size = int(config.get("per_device_train_batch_size", 1))
     gradient_accumulation_steps = int(config.get("gradient_accumulation_steps", 8))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -275,16 +302,20 @@ def train(config_path: Path) -> None:
         "model_name": model_name,
         "train_file": str(train_file),
         "output_dir": str(output_dir),
-        "num_train_samples": 0,
+        "max_train_samples": max_train_samples,
+        "num_train_samples_used": 0,
         "max_seq_len": max_seq_len,
         "min_assistant_tokens": min_assistant_tokens,
         "lora_r": int(config.get("lora_r", 16)),
         "lora_alpha": int(config.get("lora_alpha", 32)),
+        "target_modules": target_modules,
         "learning_rate": float(config.get("learning_rate", 1.0e-4)),
         "num_train_epochs": float(config.get("num_train_epochs", 1)),
         "effective_batch_size": (
             per_device_batch_size * gradient_accumulation_steps * world_size
         ),
+        "train_on_assistant_only": train_on_assistant_only,
+        "force_boxed_answer": force_boxed_answer,
         "loss": [],
         "start_time": start_time,
         "end_time": None,
@@ -305,7 +336,8 @@ def train(config_path: Path) -> None:
             )
 
         rows = _read_jsonl(train_file)
-        log_data["num_train_samples"] = len(rows)
+        if max_train_samples > 0:
+            rows = rows[:max_train_samples]
 
         tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
         if tokenizer.pad_token_id is None:
@@ -318,7 +350,10 @@ def train(config_path: Path) -> None:
             prompt_template,
             max_seq_len,
             min_assistant_tokens,
+            force_boxed_answer,
         )
+        log_data["num_train_samples_used"] = len(dataset)
+        log_data["skipped_invalid_sample_count"] = dataset.skipped_invalid_sample_count
         log_data["truncated_prompt_samples"] = dataset.truncated_prompt_count
         log_data["truncated_assistant_samples"] = dataset.truncated_assistant_count
         model = AutoModelForCausalLM.from_pretrained(

@@ -1,38 +1,37 @@
-stage: stage-5
+stage: stage-5.1-safe-pilot
 model_name: Qwen/Qwen2.5-Math-1.5B-Instruct
 train_file: data/processed/train_number_theory_sft_5k.jsonl
 eval_file: data/processed/public_number_theory_eval.jsonl
-output_dir: outputs/lora_sft_number_theory
+output_dir: outputs/lora_sft_number_theory_safe
 train_log: results/lora_sft_train_log.json
 
+max_train_samples: 1000
 max_seq_len: 2048
 min_assistant_tokens: 256
-lora_r: 16
-lora_alpha: 32
+lora_r: 8
+lora_alpha: 16
 lora_dropout: 0.05
 target_modules:
   - q_proj
-  - k_proj
   - v_proj
   - o_proj
-  - gate_proj
-  - up_proj
-  - down_proj
 
-learning_rate: 1.0e-4
+learning_rate: 2.0e-5
 num_train_epochs: 1
 per_device_train_batch_size: 1
-gradient_accumulation_steps: 8
+gradient_accumulation_steps: 16
 bf16: true
 logging_steps: 10
-save_steps: 500
+save_steps: 250
 save_total_limit: 2
-warmup_ratio: 0.03
+warmup_ratio: 0.05
 weight_decay: 0.0
 lr_scheduler_type: cosine
 seed: 42
+train_on_assistant_only: true
+force_boxed_answer: true
 
 training_prompt_template: |
-  你是一名高中数学竞赛数论教练。请一步步解答下面的数论题，并在最后给出明确答案。
+  请一步步解答下面的数论题，并将最终答案写在 \boxed{} 中。
 
   题目：{problem}

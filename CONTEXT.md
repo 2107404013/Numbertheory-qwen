@@ -238,37 +238,40 @@ cache 或重复下载。
 
 ## Current Status
 
-Current Stage: Stage 5 - LoRA SFT
+Current Stage: Stage 5.1 - Fix LoRA SFT
 
-Stage 5 Goal:
+Problem:
 
-- 使用 NuminaMath-1.5 Number Theory 5k 数据训练 LoRA adapter。
-- 不做全参数微调。
-- 不修改 Stage 2 固定的正式 eval。
-- 训练后在固定 200 道数论 eval 上评测。
-- 与 Stage 3 baseline 直接对比。
+- Initial LoRA caused format and ability degradation。
+- `lora_accuracy = 0.0`。
+- `lora_boxed_answer_rate = 0.035`。
+- `lora_extraction_success_rate = 0.035`。
+- 主要表现为英文长解答、内容与题目不匹配、重复或截断、极少输出 boxed answer。
 
-Stage 5 本地实现包括：
+Fix Plan:
 
-- `configs/lora_sft.yaml`: 固定模型、5k 训练文件、LoRA 参数和训练超参数。
-- `scripts/train_lora_sft.py`: 使用 Transformers + PEFT 训练并只保存 LoRA adapter。
-- 训练文本使用 tokenizer chat template，并只对 assistant solution token 计算 loss。
-- 超长样本会保留 chat 边界并为 assistant 预留至少 256 token，截断统计写入训练日志。
-- chat template 生成 system/user 与 assistant 起始标记，solution 单独编码拼接，避免部分
-  Transformers/tokenizer 版本省略完整对话中的 assistant 内容。
-- tokenizer 输出统一转换为扁平整数 token ID；兼容字符串、列表、tensor 和
-  `BatchEncoding`，包括旧版 `apply_chat_template(tokenize=True)` 仍返回字符串的行为。
-- 构造 `TrainingArguments` 时检查当前 Transformers API；核心参数缺失则明确报错，版本
-  不支持的非必要可选参数会被忽略，避免因 API 差异中断训练。
-- 支持使用 `torchrun --nproc_per_node=2` 在两张 GPU 上进行分布式训练；只有主进程保存
-  adapter、tokenizer 和最终训练日志。
-- adapter 输出到 `outputs/lora_sft_number_theory`，训练日志输出到
-  `results/lora_sft_train_log.json`。
-- `scripts/eval_math.py` 支持 `--adapter_path` 加载 base model + LoRA，并支持
-  `--compare` 生成 baseline/LoRA 对比结果。
+- 在 `scripts/prepare_data.py --mode audit_train` 中审计训练数据质量。
+- 使用 Qwen chat template。
+- 严格 assistant-only loss，system/user 和 padding labels 均为 `-100`。
+- 每条有效样本强制追加 `最终答案：\boxed{answer}`，截断时保留该尾行。
+- 异常或空 answer 样本跳过并记录。
+- `learning_rate` 降至 `2e-5`。
+- LoRA target modules 缩小为 `q_proj`、`v_proj`、`o_proj`。
+- 先运行 1000 条 safe pilot。
+- 在完全相同的固定 200 题 eval 上评测并与 Stage 3 baseline 对比。
 
-本地只完成代码、配置和文档修改，尚未运行远端训练或正式评测，因此不得填写或推测
-LoRA accuracy。
+Stage 5.1 本地实现：
+
+- `configs/lora_sft.yaml`: safe pilot 参数与
+  `outputs/lora_sft_number_theory_safe` 输出目录。
+- `scripts/prepare_data.py`: 输出 `results/train_data_audit.json` 和
+  `results/train_data_audit.md`。
+- `scripts/train_lora_sft.py`: assistant-only loss、强制 boxed 尾行、答案安全截断与
+  pilot 样本上限。
+- `scripts/eval_math.py`: 保持 base model + `PeftModel.from_pretrained` adapter 加载，
+  并增加 `--show_samples`。
+
+初始失败结果不得删除或伪造。安全 pilot 结果尚未运行，不得预填提升。
 
 Previous Stage:
 
@@ -288,10 +291,10 @@ Baseline:
 
 ## Next Stage
 
-Stage 6 - Teacher Response Distillation
-
-只有 Stage 5 训练、固定 eval 评测、baseline 对比和结果记录完成后，才进入 Stage 6。
-当前不得实现 Stage 6。
+- 如果 safe pilot 稳定，再运行完整 5k safe LoRA。
+- 如果 safe pilot 仍失败，则清晰记录 LoRA 未改善，再考虑进入 Teacher Response
+  Distillation。
+- 当前不得实现 Stage 6。
 
 ## Git Rule
 
