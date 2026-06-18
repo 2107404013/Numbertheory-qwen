@@ -1,0 +1,108 @@
+{
+  "model_name": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+  "eval_file": "data/processed/public_number_theory_eval.jsonl",
+  "total": 200,
+  "correct": 55,
+  "accuracy": 0.275,
+  "boxed_answer_rate": 0.885,
+  "extraction_success_rate": 0.885,
+  "avg_output_length": 2341.23,
+  "error_type_distribution": {
+    "correct": 55,
+    "extraction_error": 23,
+    "model_error": 122
+  },
+  "match_method_distribution": {
+    "failed": 145,
+    "fallback_list": 1,
+    "math_verify": 54
+  },
+  "difficulty_distribution": {
+    "2.0": 1,
+    "3.5": 19,
+    "4.0": 47,
+    "4.375": 1,
+    "4.5": 36,
+    "4.75": 1,
+    "5.0": 56,
+    "5.25": 12,
+    "5.5": 6,
+    "6.0": 8,
+    "6.5": 2,
+    "7.0": 9,
+    "8.0": 1,
+    "9.0": 1
+  },
+  "accuracy_by_difficulty": {
+    "2.0": {
+      "total": 1,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "3.5": {
+      "total": 19,
+      "correct": 10,
+      "accuracy": 0.5263157894736842
+    },
+    "4.0": {
+      "total": 47,
+      "correct": 16,
+      "accuracy": 0.3404255319148936
+    },
+    "4.375": {
+      "total": 1,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "4.5": {
+      "total": 36,
+      "correct": 13,
+      "accuracy": 0.3611111111111111
+    },
+    "4.75": {
+      "total": 1,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "5.0": {
+      "total": 56,
+      "correct": 11,
+      "accuracy": 0.19642857142857142
+    },
+    "5.25": {
+      "total": 12,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "5.5": {
+      "total": 6,
+      "correct": 1,
+      "accuracy": 0.16666666666666666
+    },
+    "6.0": {
+      "total": 8,
+      "correct": 1,
+      "accuracy": 0.125
+    },
+    "6.5": {
+      "total": 2,
+      "correct": 1,
+      "accuracy": 0.5
+    },
+    "7.0": {
+      "total": 9,
+      "correct": 1,
+      "accuracy": 0.1111111111111111
+    },
+    "8.0": {
+      "total": 1,
+      "correct": 1,
+      "accuracy": 1.0
+    },
+    "9.0": {
+      "total": 1,
+      "correct": 0,
+      "accuracy": 0.0
+    }
+  }
+}
