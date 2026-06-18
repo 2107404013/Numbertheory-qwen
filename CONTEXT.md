@@ -253,6 +253,9 @@ Stage 5 本地实现包括：
 - `configs/lora_sft.yaml`: 固定模型、5k 训练文件、LoRA 参数和训练超参数。
 - `scripts/train_lora_sft.py`: 使用 Transformers + PEFT 训练并只保存 LoRA adapter。
 - 训练文本使用 tokenizer chat template，并只对 assistant solution token 计算 loss。
+- 超长样本会保留 chat 边界并为 assistant 预留至少 256 token，截断统计写入训练日志。
+- 支持使用 `torchrun --nproc_per_node=2` 在两张 GPU 上进行分布式训练；只有主进程保存
+  adapter、tokenizer 和最终训练日志。
 - adapter 输出到 `outputs/lora_sft_number_theory`，训练日志输出到
   `results/lora_sft_train_log.json`。
 - `scripts/eval_math.py` 支持 `--adapter_path` 加载 base model + LoRA，并支持

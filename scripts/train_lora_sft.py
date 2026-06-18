@@ -79,8 +79,16 @@ class AssistantOnlyDataset:
         tokenizer: Any,
         prompt_template: str,
         max_seq_len: int,
+        min_assistant_tokens: int,
     ) -> None:
         self.examples: list[dict[str, list[int]]] = []
+        self.truncated_prompt_count = 0
+        self.truncated_assistant_count = 0
+
+        if min_assistant_tokens < 1 or min_assistant_tokens >= max_seq_len:
+            raise ValueError(
+                "min_assistant_tokens must be at least 1 and smaller than max_seq_len"
+            )
 
         for index, row in enumerate(rows, start=1):
             problem = str(row["problem"]).strip()
@@ -113,15 +121,35 @@ class AssistantOnlyDataset:
                     f"Tokenizer chat template produced a non-prefix assistant prompt at sample {index}."
                 )
 
-            input_ids = full_ids[:max_seq_len]
-            assistant_start = len(prompt_ids)
-            if assistant_start >= len(input_ids):
+            assistant_ids = full_ids[len(prompt_ids) :]
+            if not assistant_ids:
                 raise ValueError(
-                    f"Sample {index} has no assistant tokens within max_seq_len={max_seq_len}. "
-                    "Shorten the prompt or increase max_seq_len."
+                    f"Tokenizer chat template produced no assistant tokens at sample {index}."
                 )
 
-            labels = [-100] * assistant_start + input_ids[assistant_start:]
+            if len(prompt_ids) + len(assistant_ids) > max_seq_len:
+                reserved_assistant = min(len(assistant_ids), min_assistant_tokens)
+                max_prompt_tokens = max_seq_len - reserved_assistant
+                if len(prompt_ids) > max_prompt_tokens:
+                    # Preserve both the chat/system prefix and the end of the user turn,
+                    # including its role boundary and assistant generation marker.
+                    prefix_tokens = min(64, max_prompt_tokens // 4)
+                    suffix_tokens = max_prompt_tokens - prefix_tokens
+                    prompt_ids = prompt_ids[:prefix_tokens] + prompt_ids[-suffix_tokens:]
+                    self.truncated_prompt_count += 1
+
+            assistant_capacity = max_seq_len - len(prompt_ids)
+            retained_assistant_ids = assistant_ids[:assistant_capacity]
+            if len(retained_assistant_ids) < len(assistant_ids):
+                self.truncated_assistant_count += 1
+            if not retained_assistant_ids:
+                raise ValueError(
+                    f"Sample {index} has no retained assistant tokens at "
+                    f"max_seq_len={max_seq_len}."
+                )
+
+            input_ids = prompt_ids + retained_assistant_ids
+            labels = [-100] * len(prompt_ids) + retained_assistant_ids
             self.examples.append(
                 {
                     "input_ids": input_ids,
@@ -177,6 +205,7 @@ def train(config_path: Path) -> None:
     prompt_template = str(_required(config, "training_prompt_template"))
     target_modules = list(_required(config, "target_modules"))
     max_seq_len = int(config.get("max_seq_len", 2048))
+    min_assistant_tokens = int(config.get("min_assistant_tokens", 256))
     per_device_batch_size = int(config.get("per_device_train_batch_size", 1))
     gradient_accumulation_steps = int(config.get("gradient_accumulation_steps", 8))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -189,6 +218,7 @@ def train(config_path: Path) -> None:
         "output_dir": str(output_dir),
         "num_train_samples": 0,
         "max_seq_len": max_seq_len,
+        "min_assistant_tokens": min_assistant_tokens,
         "lora_r": int(config.get("lora_r", 16)),
         "lora_alpha": int(config.get("lora_alpha", 32)),
         "learning_rate": float(config.get("learning_rate", 1.0e-4)),
@@ -223,7 +253,15 @@ def train(config_path: Path) -> None:
             tokenizer.pad_token = tokenizer.eos_token
         tokenizer.padding_side = "right"
 
-        dataset = AssistantOnlyDataset(rows, tokenizer, prompt_template, max_seq_len)
+        dataset = AssistantOnlyDataset(
+            rows,
+            tokenizer,
+            prompt_template,
+            max_seq_len,
+            min_assistant_tokens,
+        )
+        log_data["truncated_prompt_samples"] = dataset.truncated_prompt_count
+        log_data["truncated_assistant_samples"] = dataset.truncated_assistant_count
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             torch_dtype=torch.bfloat16,
@@ -273,27 +311,30 @@ def train(config_path: Path) -> None:
         )
         train_result = trainer.train()
 
-        # PEFT save_pretrained writes adapter weights/config only, not the full base model.
-        model.save_pretrained(output_dir, safe_serialization=True)
-        tokenizer.save_pretrained(output_dir)
+        # Trainer delegates to PEFT save_pretrained and only the main process writes files.
+        # This saves adapter weights/config, not the full base model.
+        trainer.save_model(str(output_dir))
+        if trainer.is_world_process_zero():
+            tokenizer.save_pretrained(output_dir)
 
         losses = [
             {"step": item.get("step"), "loss": item["loss"]}
             for item in trainer.state.log_history
             if "loss" in item
         ]
-        log_data.update(
-            {
-                "status": "completed",
-                "loss": losses,
-                "final_train_loss": float(train_result.training_loss),
-                "global_step": int(trainer.state.global_step),
-                "end_time": _utc_now(),
-            }
-        )
-        _write_train_log(train_log_path, log_data)
-        print(f"Saved LoRA adapter to {output_dir}")
-        print(f"Wrote training log to {train_log_path}")
+        if trainer.is_world_process_zero():
+            log_data.update(
+                {
+                    "status": "completed",
+                    "loss": losses,
+                    "final_train_loss": float(train_result.training_loss),
+                    "global_step": int(trainer.state.global_step),
+                    "end_time": _utc_now(),
+                }
+            )
+            _write_train_log(train_log_path, log_data)
+            print(f"Saved LoRA adapter to {output_dir}")
+            print(f"Wrote training log to {train_log_path}")
     except Exception as exc:
         log_data.update(
             {
@@ -303,7 +344,8 @@ def train(config_path: Path) -> None:
                 "end_time": _utc_now(),
             }
         )
-        _write_train_log(train_log_path, log_data)
+        if int(os.environ.get("RANK", "0")) == 0:
+            _write_train_log(train_log_path, log_data)
         raise
 
 

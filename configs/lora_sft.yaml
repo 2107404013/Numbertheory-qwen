@@ -6,6 +6,7 @@ output_dir: outputs/lora_sft_number_theory
 train_log: results/lora_sft_train_log.json
 
 max_seq_len: 2048
+min_assistant_tokens: 256
 lora_r: 16
 lora_alpha: 32
 lora_dropout: 0.05

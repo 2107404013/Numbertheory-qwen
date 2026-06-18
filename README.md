@@ -118,7 +118,9 @@ math-word-problem 数据，对 `Qwen/Qwen2.5-Math-1.5B-Instruct` 进行 LoRA SFT
 
 训练文本通过 tokenizer 的 `apply_chat_template` 构造为 system、user、assistant 三段对话，
 并将 system/user token 的 label 设为 `-100`，只对 assistant solution 部分计算 causal LM
-loss。训练数据主要来自英文数学数据，因此本阶段不要求中文解题风格完全统一；Stage 6
+loss。对于超过 `max_seq_len` 的样本，训练脚本会保留 chat 前后边界并为 assistant
+预留至少 256 个 token，避免长题目把解答部分完全截掉；实际截断数量会写入训练日志。
+训练数据主要来自英文数学数据，因此本阶段不要求中文解题风格完全统一；Stage 6
 再使用 `Qwen/Qwen2.5-Math-7B-Instruct` 生成中文竞赛教练风格解法。
 
 LoRA adapter 保存到：
