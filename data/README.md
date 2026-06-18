@@ -24,4 +24,13 @@ Stage 4 会从 `AI-MO/NuminaMath-1.5` 生成第一版 5000 条 Number Theory SFT
 
 后续只有在 LoRA SFT 相对正式 baseline 确认提升后，才会把训练规模扩展到 10000 条。
 
+Stage 6.1 会在远端生成 1000 条教师答案试验数据：
+
+- `data/processed/train_number_theory_teacher_1k.jsonl`
+
+该数据由 `Qwen/Qwen2.5-Math-7B-Instruct` 根据原始数论题和 gold answer 生成，目标格式为
+中文、步骤清晰、竞赛教练风格，并在最后一行提供 `\boxed{}` 答案。教师数据本体仍属于
+`data/processed/`，不得提交 GitHub；只提交
+`results/teacher_data_summary.json` 和 `results/teacher_data_audit.md`。
+
 不要手动上传大数据、模型权重或 Hugging Face cache 到 GitHub。

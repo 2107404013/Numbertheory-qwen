@@ -1,5 +1,34 @@
-# Stage 6 will complete this teacher response generation configuration.
-stage: stage-6
+stage: stage-6.1-teacher-response-pilot
 teacher_model: Qwen/Qwen2.5-Math-7B-Instruct
-input_file: data/processed/numina_number_theory_sft_5k.jsonl
-output_file: data/processed/teacher_number_theory_solutions.jsonl
+input_file: data/processed/train_number_theory_sft_5k.jsonl
+output_file: data/processed/train_number_theory_teacher_1k.jsonl
+summary_file: results/teacher_data_summary.json
+audit_file: results/teacher_data_audit.md
+
+max_samples: 1000
+max_new_tokens: 2048
+temperature: 0.2
+top_p: 0.9
+do_sample: true
+load_in_4bit: true
+seed: 20260618
+save_every: 50
+
+prompt_template: |
+  你是一名高中数学竞赛数论教练。下面是一道数论题和它的标准答案。
+
+  请你用中文给出严谨、清晰、适合高中竞赛学生理解的解法。要求：
+
+  1. 不要只给答案，要写出关键推理步骤；
+  2. 不要编造题目中没有的信息；
+  3. 最终答案必须与给定标准答案一致；
+  4. 最后一行必须使用 \boxed{} 写出最终答案；
+  5. 输出语言必须是中文。
+
+  题目：
+  {problem}
+
+  标准答案：
+  {answer}
+
+  请开始解答：

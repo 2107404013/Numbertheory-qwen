@@ -1,6 +1,570 @@
-"""Stage 6 placeholder.
+"""Generate and audit the Stage 6.1 teacher-response pilot dataset."""
 
-Teacher response generation will be implemented in Stage 6.
-"""
+from __future__ import annotations
 
-raise NotImplementedError("generate_teacher_data.py will be implemented in Stage 6.")
+import argparse
+import json
+import os
+import random
+import re
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from eval_math import extract_answer_candidates, extract_boxed_answer, is_equiv
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError("PyYAML is required. Install the project requirements first.") from exc
+
+    with path.open("r", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
+    if not isinstance(config, dict):
+        raise ValueError(f"Config must contain a YAML mapping: {path}")
+    return config
+
+
+def _required(config: dict[str, Any], key: str) -> Any:
+    value = config.get(key)
+    if value is None or value == "":
+        raise ValueError(f"Missing required config value: {key}")
+    return value
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as file:
+        for line_no, line in enumerate(file, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSONL at {path}:{line_no}") from exc
+            if not isinstance(row, dict):
+                raise ValueError(f"Expected a JSON object at {path}:{line_no}")
+            rows.append(row)
+    return rows
+
+
+def _atomic_write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            delete=False,
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+        ) as file:
+            temp_path = Path(file.name)
+            for row in rows:
+                file.write(json.dumps(row, ensure_ascii=False) + "\n")
+            file.flush()
+            os.fsync(file.fileno())
+        temp_path.replace(path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _read_json_if_exists(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _render_prompt(template: str, problem: str, answer: str) -> str:
+    if "{problem}" not in template or "{answer}" not in template:
+        raise ValueError("prompt_template must contain {problem} and {answer}")
+    return template.replace("{problem}", problem).replace("{answer}", answer)
+
+
+def _is_chinese_like(text: str) -> bool:
+    cjk_count = len(re.findall(r"[\u3400-\u4dbf\u4e00-\u9fff]", text))
+    latin_count = len(re.findall(r"[A-Za-z]", text))
+    return cjk_count >= 20 and cjk_count >= latin_count * 0.35
+
+
+def _score_teacher_answer(solution: str, gold: str) -> tuple[bool | None, str | None]:
+    boxed = extract_boxed_answer(solution)
+    candidates = [boxed] if boxed else extract_answer_candidates(solution)
+    candidates = [candidate for candidate in candidates if candidate]
+    if not candidates:
+        return None, None
+
+    for candidate in candidates:
+        result = is_equiv(candidate, gold)
+        if result.matched:
+            return True, result.match_method
+    return False, "failed"
+
+
+def _model_input_device(model: Any) -> Any:
+    for parameter in model.parameters():
+        if getattr(parameter, "device", None) is not None and parameter.device.type != "meta":
+            return parameter.device
+    raise RuntimeError("Unable to determine the teacher model input device.")
+
+
+def _chat_input_ids(tokenizer: Any, prompt: str, device: Any) -> Any:
+    messages = [{"role": "user", "content": prompt}]
+    encoded = tokenizer.apply_chat_template(
+        messages,
+        tokenize=True,
+        add_generation_prompt=True,
+        return_tensors="pt",
+    )
+    if hasattr(encoded, "input_ids"):
+        encoded = encoded.input_ids
+    if not hasattr(encoded, "shape"):
+        raise TypeError(
+            "Tokenizer chat template must return a tensor or BatchEncoding with input_ids."
+        )
+    return encoded.to(device)
+
+
+def _load_teacher_model(config: dict[str, Any]) -> tuple[Any, Any]:
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    model_name = str(_required(config, "teacher_model"))
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
+
+    load_in_4bit = bool(config.get("load_in_4bit", True))
+    model_kwargs: dict[str, Any] = {
+        "device_map": "auto",
+        "low_cpu_mem_usage": True,
+    }
+    if load_in_4bit:
+        try:
+            from transformers import BitsAndBytesConfig
+
+            model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+            )
+            model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to load the teacher model in 4-bit mode. Verify that CUDA, "
+                "bitsandbytes, accelerate, and Transformers are installed correctly. "
+                "If the GPU environment cannot support 4-bit loading, set "
+                "load_in_4bit: false in configs/teacher_generate.yaml and rerun; "
+                "bf16 loading requires substantially more GPU memory."
+            ) from exc
+    else:
+        if not torch.cuda.is_available():
+            raise RuntimeError("CUDA is required for teacher response generation.")
+        model_kwargs["torch_dtype"] = torch.bfloat16
+        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+
+    model.eval()
+    return tokenizer, model
+
+
+def _build_output_row(
+    source_row: dict[str, Any],
+    row_id: str,
+    teacher_solution: str,
+    answer_match: bool | None,
+    answer_match_method: str | None,
+    boxed_fallback_appended: bool,
+) -> dict[str, Any]:
+    return {
+        "id": row_id,
+        "subject": source_row.get("subject") or "number_theory",
+        "problem": str(source_row.get("problem") or ""),
+        "answer": str(source_row.get("answer") or ""),
+        "original_solution": str(source_row.get("solution") or ""),
+        "teacher_solution": teacher_solution,
+        "source": "teacher_qwen2.5_math_7b",
+        "base_source": source_row.get("source") or "AI-MO/NuminaMath-1.5",
+        "problem_type": source_row.get("problem_type", ""),
+        "question_type": source_row.get("question_type", ""),
+        "has_boxed_answer": extract_boxed_answer(teacher_solution) is not None,
+        "teacher_answer_match_gold": answer_match,
+        "teacher_answer_match_method": answer_match_method,
+        "boxed_fallback_appended": boxed_fallback_appended,
+    }
+
+
+def _summarize(
+    config: dict[str, Any],
+    rows: list[dict[str, Any]],
+    target_samples: int,
+    empty_output_count: int,
+    non_chinese_like_count: int,
+    append_boxed_fallback_count: int,
+    generation_errors: list[dict[str, Any]],
+    status: str,
+) -> dict[str, Any]:
+    actual_samples = len(rows)
+    boxed_count = sum(bool(row.get("has_boxed_answer")) for row in rows)
+    matched_values = [
+        row.get("teacher_answer_match_gold")
+        for row in rows
+        if row.get("teacher_answer_match_gold") is not None
+    ]
+    matched_count = sum(value is True for value in matched_values)
+    total_length = sum(len(str(row.get("teacher_solution") or "")) for row in rows)
+    computed_non_chinese = sum(
+        not _is_chinese_like(str(row.get("teacher_solution") or "")) for row in rows
+    )
+    computed_fallback_count = sum(
+        bool(row.get("boxed_fallback_appended")) for row in rows
+    )
+    return {
+        "status": status,
+        "teacher_model": str(_required(config, "teacher_model")),
+        "input_file": str(_required(config, "input_file")),
+        "output_file": str(_required(config, "output_file")),
+        "target_samples": target_samples,
+        "actual_samples": actual_samples,
+        "boxed_answer_rate": boxed_count / actual_samples if actual_samples else 0.0,
+        "empty_output_count": empty_output_count,
+        "non_chinese_like_count": max(non_chinese_like_count, computed_non_chinese),
+        "avg_teacher_solution_length": total_length / actual_samples if actual_samples else 0.0,
+        "teacher_answer_match_gold_count": matched_count,
+        "teacher_answer_match_gold_rate": (
+            matched_count / len(matched_values) if matched_values else 0.0
+        ),
+        "teacher_answer_checked_count": len(matched_values),
+        "append_boxed_fallback_count": max(
+            append_boxed_fallback_count,
+            computed_fallback_count,
+        ),
+        "generation_error_count": len(generation_errors),
+        "generation_errors": generation_errors,
+    }
+
+
+def _write_audit(path: Path, summary: dict[str, Any], rows: list[dict[str, Any]]) -> None:
+    lines = [
+        "# Teacher Data Audit",
+        "",
+        "## Summary",
+        "",
+        f"- status: {summary['status']}",
+        f"- generated samples: {summary['actual_samples']} / {summary['target_samples']}",
+        f"- boxed answer rate: {summary['boxed_answer_rate']:.4f}",
+        (
+            "- teacher answer / gold answer match rate: "
+            f"{summary['teacher_answer_match_gold_rate']:.4f} "
+            f"({summary['teacher_answer_match_gold_count']}/"
+            f"{summary['teacher_answer_checked_count']})"
+        ),
+        f"- empty output count: {summary['empty_output_count']}",
+        f"- non-Chinese-like output count: {summary['non_chinese_like_count']}",
+        (
+            "- average teacher solution length: "
+            f"{summary['avg_teacher_solution_length']:.2f} characters"
+        ),
+        f"- appended boxed fallback count: {summary['append_boxed_fallback_count']}",
+        f"- generation error count: {summary['generation_error_count']}",
+        "",
+        "## Samples",
+        "",
+    ]
+
+    for row in rows[:5]:
+        problem = str(row.get("problem") or "")
+        solution = str(row.get("teacher_solution") or "")
+        lines.extend(
+            [
+                f"### {row.get('id', '')}",
+                "",
+                f"- problem: {problem[:300]}{'...' if len(problem) > 300 else ''}",
+                f"- gold answer: {row.get('answer', '')}",
+                (
+                    "- teacher solution: "
+                    f"{solution[:800]}{'...' if len(solution) > 800 else ''}"
+                ),
+                f"- has boxed answer: {row.get('has_boxed_answer')}",
+                (
+                    "- teacher answer matches gold: "
+                    f"{row.get('teacher_answer_match_gold')}"
+                ),
+                "",
+            ]
+        )
+
+    if summary["generation_errors"]:
+        lines.extend(["## Generation Errors", ""])
+        for error in summary["generation_errors"][:20]:
+            lines.append(
+                f"- id={error.get('id', '')}: {error.get('type', '')}: "
+                f"{error.get('error', '')}"
+            )
+        lines.append("")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def generate(config_path: Path) -> None:
+    import torch
+    from tqdm import tqdm
+
+    config = _load_yaml(config_path)
+    input_path = Path(str(_required(config, "input_file")))
+    output_path = Path(str(_required(config, "output_file")))
+    summary_path = Path(
+        str(config.get("summary_file", "results/teacher_data_summary.json"))
+    )
+    audit_path = Path(str(config.get("audit_file", "results/teacher_data_audit.md")))
+    prompt_template = str(_required(config, "prompt_template"))
+    max_samples = int(config.get("max_samples", 1000))
+    save_every = max(1, int(config.get("save_every", 50)))
+    seed = int(config.get("seed", 20260618))
+
+    if max_samples < 1:
+        raise ValueError("max_samples must be at least 1")
+    if not input_path.exists():
+        raise FileNotFoundError(
+            f"Teacher input file not found: {input_path}. Restore the fixed Stage 4 data."
+        )
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required. Run Stage 6.1 on the remote GPU server.")
+
+    source_rows = _read_jsonl(input_path)[:max_samples]
+    if len(source_rows) < max_samples:
+        raise ValueError(
+            f"Input contains only {len(source_rows)} rows, fewer than max_samples={max_samples}."
+        )
+
+    source_ids: list[str] = []
+    seen_source_ids: set[str] = set()
+    for index, row in enumerate(source_rows):
+        row_id = str(row.get("id") or "").strip()
+        if not row_id:
+            raise ValueError(f"Input sample {index + 1} is missing a stable id.")
+        if row_id in seen_source_ids:
+            raise ValueError(f"Input contains duplicate id: {row_id}")
+        seen_source_ids.add(row_id)
+        source_ids.append(row_id)
+
+    output_rows = _read_jsonl(output_path) if output_path.exists() else []
+    completed_ids: set[str] = set()
+    for row in output_rows:
+        row_id = str(row.get("id") or "")
+        if not row_id:
+            raise ValueError(f"Existing output contains a row without id: {output_path}")
+        if row_id in completed_ids:
+            raise ValueError(f"Existing output contains duplicate id: {row_id}")
+        if row_id not in seen_source_ids:
+            raise ValueError(
+                f"Existing output id is not part of the configured first "
+                f"{max_samples} input samples: {row_id}"
+            )
+        completed_ids.add(row_id)
+
+    pending_rows = [
+        (index, source_ids[index], row)
+        for index, row in enumerate(source_rows)
+        if source_ids[index] not in completed_ids
+    ]
+    previous_summary = _read_json_if_exists(summary_path)
+    previous_errors = previous_summary.get("generation_errors", [])
+    if not isinstance(previous_errors, list):
+        previous_errors = []
+    previous_empty_count = int(previous_summary.get("empty_output_count", 0) or 0)
+    previous_non_chinese_count = int(
+        previous_summary.get("non_chinese_like_count", 0) or 0
+    )
+    previous_fallback_count = int(
+        previous_summary.get("append_boxed_fallback_count", 0) or 0
+    )
+
+    if not pending_rows:
+        print(f"All {len(output_rows)} teacher samples already exist; rebuilding audit only.")
+        summary = _summarize(
+            config,
+            output_rows,
+            max_samples,
+            empty_output_count=previous_empty_count,
+            non_chinese_like_count=previous_non_chinese_count,
+            append_boxed_fallback_count=previous_fallback_count,
+            generation_errors=previous_errors,
+            status="completed",
+        )
+        _write_json(summary_path, summary)
+        _write_audit(audit_path, summary, output_rows)
+        return
+
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    tokenizer, model = _load_teacher_model(config)
+    input_device = _model_input_device(model)
+
+    max_new_tokens = int(config.get("max_new_tokens", 2048))
+    do_sample = bool(config.get("do_sample", True))
+    generation_kwargs: dict[str, Any] = {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "pad_token_id": tokenizer.pad_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
+    }
+    if do_sample:
+        generation_kwargs.update(
+            {
+                "temperature": float(config.get("temperature", 0.2)),
+                "top_p": float(config.get("top_p", 0.9)),
+            }
+        )
+
+    empty_output_count = previous_empty_count
+    non_chinese_like_count = previous_non_chinese_count
+    append_boxed_fallback_count = previous_fallback_count
+    generation_errors: list[dict[str, Any]] = list(previous_errors)
+    generated_since_save = 0
+    interrupted = False
+
+    try:
+        for index, row_id, row in tqdm(pending_rows, desc="Teacher generation"):
+            problem = str(row.get("problem") or "").strip()
+            answer = str(row.get("answer") or "").strip()
+            if not problem or not answer:
+                generation_errors.append(
+                    {
+                        "id": row_id,
+                        "type": "invalid_source_sample",
+                        "error": "Missing problem or gold answer.",
+                    }
+                )
+                continue
+
+            try:
+                per_sample_seed = seed + index
+                random.seed(per_sample_seed)
+                torch.manual_seed(per_sample_seed)
+                torch.cuda.manual_seed_all(per_sample_seed)
+
+                prompt = _render_prompt(prompt_template, problem, answer)
+                input_ids = _chat_input_ids(tokenizer, prompt, input_device)
+                with torch.inference_mode():
+                    generated = model.generate(input_ids=input_ids, **generation_kwargs)
+                new_tokens = generated[0, input_ids.shape[-1] :]
+                teacher_solution = tokenizer.decode(
+                    new_tokens,
+                    skip_special_tokens=True,
+                ).strip()
+            except Exception as exc:
+                generation_errors.append(
+                    {
+                        "id": row_id,
+                        "type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                )
+                continue
+
+            if not teacher_solution:
+                empty_output_count += 1
+                generation_errors.append(
+                    {
+                        "id": row_id,
+                        "type": "empty_output",
+                        "error": "Teacher model returned an empty response.",
+                    }
+                )
+                continue
+
+            if not _is_chinese_like(teacher_solution):
+                non_chinese_like_count += 1
+
+            boxed_fallback_appended = extract_boxed_answer(teacher_solution) is None
+            if boxed_fallback_appended:
+                teacher_solution = (
+                    teacher_solution.rstrip()
+                    + f"\n\n最终答案：\\boxed{{{answer}}}"
+                )
+                append_boxed_fallback_count += 1
+
+            answer_match, match_method = _score_teacher_answer(teacher_solution, answer)
+            output_rows.append(
+                _build_output_row(
+                    row,
+                    row_id,
+                    teacher_solution,
+                    answer_match,
+                    match_method,
+                    boxed_fallback_appended,
+                )
+            )
+            completed_ids.add(row_id)
+            generated_since_save += 1
+
+            if generated_since_save >= save_every:
+                _atomic_write_jsonl(output_path, output_rows)
+                generated_since_save = 0
+                print(f"Checkpoint saved: {len(output_rows)}/{max_samples}")
+    except KeyboardInterrupt:
+        interrupted = True
+        print("Generation interrupted; saving completed teacher samples.")
+    finally:
+        _atomic_write_jsonl(output_path, output_rows)
+        status = (
+            "completed"
+            if len(output_rows) >= max_samples
+            else "interrupted"
+            if interrupted
+            else "completed_with_errors"
+        )
+        summary = _summarize(
+            config,
+            output_rows,
+            max_samples,
+            empty_output_count,
+            non_chinese_like_count,
+            append_boxed_fallback_count,
+            generation_errors,
+            status,
+        )
+        _write_json(summary_path, summary)
+        _write_audit(audit_path, summary, output_rows)
+        print(f"Wrote teacher data: {output_path}")
+        print(f"Wrote summary: {summary_path}")
+        print(f"Wrote audit: {audit_path}")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Generate the Stage 6.1 teacher-response pilot dataset."
+    )
+    parser.add_argument("--config", required=True, help="Teacher generation YAML config.")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    generate(Path(args.config))
+
+
+if __name__ == "__main__":
+    main()

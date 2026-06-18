@@ -237,12 +237,13 @@ cache 或重复下载。
 - Stage 4: 筛选并验证 5000 条 NuminaMath-1.5 Number Theory SFT 数据。
 - Stage 5.1: safe LoRA 1000 条 pilot 完成，固定 200 题 accuracy 从 0.275 提升到 0.295。
 - Stage 5.2: safe LoRA 扩展到完整 5000 条，accuracy 为 0.275，与 baseline 持平。
+- Stage 5.3: LoRA 结果定稿，选择 `safe_lora_pilot_1000` 作为最佳 LoRA，不扩展到 10k。
 
 ## Current Status
 
-Current Stage: Stage 5.3 - Finalize LoRA Results
+Current Stage: Stage 6.1 - Teacher Response Distillation Pilot
 
-LoRA Conclusion:
+Previous Stage:
 
 - Initial LoRA 因答案格式崩坏而失败：accuracy 为 0.0，boxed answer rate 和
   extraction success rate 均为 0.035。
@@ -257,11 +258,22 @@ LoRA Conclusion:
 - 最终选择记录在 `results/lora_sft_best_selector.json`，完整分析记录在
   `results/lora_sft_final_report.md`。
 
+Stage 6.1 Goal:
+
+- 使用 `Qwen/Qwen2.5-Math-7B-Instruct` 生成 1000 条中文数论 teacher solution。
+- 输入来自 `data/processed/train_number_theory_sft_5k.jsonl` 的前 1000 条。
+- teacher solution 使用高中竞赛数论教练风格并包含清晰推理步骤。
+- 每条输出必须包含 `\boxed{}` 最终答案，并与 gold answer 做等价检查。
+- 生成数据保存到 `data/processed/train_number_theory_teacher_1k.jsonl`，不提交 GitHub。
+- 生成 `results/teacher_data_summary.json` 和 `results/teacher_data_audit.md`。
+- 支持每 50 条保存和按样本 ID 断点续跑。
+- 本阶段不训练学生模型。
+
 ## Next Stage
 
-- Stage 6 - Teacher Response Distillation。
-- 使用 `Qwen/Qwen2.5-Math-7B-Instruct` 生成中文、boxed、竞赛教练风格解法。
-- Stage 5.3 只记录下一阶段方向，不实现、不训练也不运行 Stage 6。
+- Stage 6.2 - Teacher LoRA SFT。
+- 使用通过质量审计的 `train_number_theory_teacher_1k.jsonl` 训练学生模型。
+- 当前不得实现或运行 Stage 6.2。
 
 ## Git Rule
 
