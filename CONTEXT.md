@@ -236,44 +236,32 @@ cache 或重复下载。
 - Stage 3: 原始 1.5B 学生模型正式 baseline，accuracy 0.275。
 - Stage 4: 筛选并验证 5000 条 NuminaMath-1.5 Number Theory SFT 数据。
 - Stage 5.1: safe LoRA 1000 条 pilot 完成，固定 200 题 accuracy 从 0.275 提升到 0.295。
+- Stage 5.2: safe LoRA 扩展到完整 5000 条，accuracy 为 0.275，与 baseline 持平。
 
 ## Current Status
 
-Current Stage: Stage 5.2 - Safe LoRA Full 5k
+Current Stage: Stage 5.3 - Finalize LoRA Results
 
-Previous Result:
+LoRA Conclusion:
 
-- Initial LoRA caused format and ability degradation。
-- `lora_accuracy = 0.0`。
-- `lora_boxed_answer_rate = 0.035`。
-- `lora_extraction_success_rate = 0.035`。
-- Stage 5.1 safe pilot 已修复初始 LoRA 的格式崩坏。
-- `baseline_accuracy = 0.275`。
-- `safe_lora_pilot_accuracy = 0.295`。
-- boxed answer rate 从 `0.885` 提升到 `0.91`。
-- extraction success rate 从 `0.885` 提升到 `0.915`。
-- improved cases 为 9，regressed cases 为 5。
-
-Stage 5.2 Goal:
-
-- 将 safe LoRA 从 1000 条扩展到完整 5000 条。
-- 保持 Qwen chat template。
-- 保持 assistant-only loss，prompt 和 padding labels 均为 `-100`。
-- 保持强制追加 `最终答案：\boxed{answer}`，并在截断时保留该尾行。
-- 保持 `learning_rate = 2e-5`。
-- 保持 LoRA target modules 为 `q_proj`、`v_proj`、`o_proj`。
-- full adapter 输出到 `outputs/lora_sft_number_theory_safe_5k`。
-- 在完全相同的固定 200 题正式 eval 上评测。
-- 与 Stage 3 baseline 及 Stage 5.1 safe pilot 对比。
-
-训练与评测完成后必须如实记录结果。即使 LoRA accuracy 没有提升，也不得修改正式 eval、
-伪造结果或改变项目路线。
+- Initial LoRA 因答案格式崩坏而失败：accuracy 为 0.0，boxed answer rate 和
+  extraction success rate 均为 0.035。
+- Safe LoRA 1k 使用 assistant-only loss、强制 boxed answer、低学习率和更保守的
+  target modules，accuracy 从 baseline 的 0.275 提升到 0.295。
+- Safe LoRA 1k 的 boxed answer rate 为 0.91，extraction success rate 为 0.915。
+- Safe LoRA 5k 的 accuracy 回到 0.275，boxed answer rate 为 0.88，
+  extraction success rate 为 0.885。
+- Best LoRA result: `safe_lora_pilot_1000`。
+- 最佳 adapter 保存在远端 `outputs/lora_sft_number_theory_safe`。
+- 当前不继续扩展到 10k LoRA。
+- 最终选择记录在 `results/lora_sft_best_selector.json`，完整分析记录在
+  `results/lora_sft_final_report.md`。
 
 ## Next Stage
 
-- 如果 full 5k 结果稳定或提升，再单独规划 Stage 6 Teacher Response Distillation。
-- 如果 full 5k 退化，则保留 Stage 5.1 pilot 作为 LoRA 结果，并如实记录失败。
-- 当前不得实现 Stage 6。
+- Stage 6 - Teacher Response Distillation。
+- 使用 `Qwen/Qwen2.5-Math-7B-Instruct` 生成中文、boxed、竞赛教练风格解法。
+- Stage 5.3 只记录下一阶段方向，不实现、不训练也不运行 Stage 6。
 
 ## Git Rule
 

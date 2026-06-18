@@ -1,0 +1,34 @@
+{
+  "baseline": {
+    "accuracy": 0.275,
+    "boxed_answer_rate": 0.885,
+    "extraction_success_rate": 0.885
+  },
+  "initial_lora": {
+    "accuracy": 0.0,
+    "boxed_answer_rate": 0.035,
+    "extraction_success_rate": 0.035,
+    "status": "failed_format_collapse"
+  },
+  "safe_lora_pilot_1000": {
+    "accuracy": 0.295,
+    "accuracy_delta": 0.02,
+    "boxed_answer_rate": 0.91,
+    "extraction_success_rate": 0.915,
+    "improved_case_count": 9,
+    "regressed_case_count": 5,
+    "status": "best_lora_result"
+  },
+  "safe_lora_full_5k": {
+    "accuracy": 0.275,
+    "accuracy_delta": 0.0,
+    "boxed_answer_rate": 0.88,
+    "extraction_success_rate": 0.885,
+    "improved_case_count": 10,
+    "regressed_case_count": 10,
+    "status": "stable_but_no_net_gain"
+  },
+  "selected_lora_result": "safe_lora_pilot_1000",
+  "selected_reason": "Safe LoRA 1000 improves accuracy from 27.5% to 29.5% while keeping boxed-answer and extraction rates stable. Full 5k returns to baseline accuracy and is not selected.",
+  "next_stage": "Teacher Response Distillation"
+}

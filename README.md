@@ -159,6 +159,24 @@ Stage 5.1 safe pilot 已完成，并在固定 200 题正式 eval 上得到：
 Rate 和 Extraction Success Rate。若 LoRA 没有提升，必须如实保留结果，不修改正式评测集，
 也不伪造提升。
 
+Stage 5.3 已完成 LoRA SFT 结果整理。所有版本在固定 200 道正式 eval 上的结果如下：
+
+| Model | Accuracy | Boxed Rate | Extraction Rate | Conclusion |
+| --- | ---: | ---: | ---: | --- |
+| Baseline | 0.275 | 0.885 | 0.885 | 原始基线 |
+| Initial LoRA | 0.000 | 0.035 | 0.035 | 格式退化，失败 |
+| Safe LoRA 1k | 0.295 | 0.910 | 0.915 | 当前最佳 LoRA |
+| Safe LoRA 5k | 0.275 | 0.880 | 0.885 | 稳定但无净提升 |
+
+最终选择 `Safe LoRA 1k` 作为 LoRA 阶段最佳结果，对应远端 adapter
+`outputs/lora_sft_number_theory_safe`。该阶段证明了训练格式、assistant-only loss 和
+boxed answer 监督对于保持模型稳定性的重要性；同时也表明纯英文 NuminaMath SFT 对中文
+数论 eval 的提升有限。由于完整 5k 已回到 baseline 准确率，当前不继续扩展到 10k LoRA。
+
+下一阶段规划使用 `Qwen/Qwen2.5-Math-7B-Instruct` 生成中文、boxed、竞赛教练风格的教师
+解法，以减少训练数据与正式评测 prompt 的分布差异。详细结论见
+`results/lora_sft_final_report.md` 和 `results/lora_sft_best_selector.json`。
+
 ## 本地与远端运行规则
 
 本地 Windows 只用于 VSCode/Codex 编辑代码，不运行模型推理、训练、评测，也不下载模型权重。
@@ -179,5 +197,5 @@ Rate 和 Extraction Success Rate。若 LoRA 没有提升，必须如实保留结
 
 ## 当前阶段
 
-当前阶段：Stage 5.2 - Safe LoRA Full 5k Training。当前只进行完整 5000 条 safe LoRA
-训练，并在固定 200 题正式 eval 上与 baseline 和 Stage 5.1 pilot 比较；不进入 Stage 6。
+当前阶段：Stage 5.3 - Finalize LoRA SFT Results。LoRA 阶段结果已经整理，最佳结果为
+Safe LoRA 1000 条 pilot；本阶段不训练、不评测，也不进入 Stage 6。
