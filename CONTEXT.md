@@ -46,17 +46,15 @@ NumberTheory-Qwen
 
 ## Current Stage
 
-Stage 2 - Build Formal Number Theory Evaluation Set
+Stage 3 - Formal Baseline Evaluation
 
-## Stage 2 Goal
+## Stage 3 Goal
 
-- 从公开奥赛级数学数据集中筛选 200 道正式数论评测题。
-- 只保留纯文本、短答案、适合 Math-Verify 自动评分的题。
-- 生成 `data/processed/public_number_theory_eval.jsonl`。
-- 生成 `results/public_eval_data_summary.json`。
-- 生成 `results/public_eval_manifest.json`。
-- 生成 `results/evaluator_audit.md`。
-- 不训练，不推理，不下载 Qwen 权重。
+- 在固定的 200 道正式数论评测集上评测 `Qwen/Qwen2.5-Math-1.5B-Instruct`。
+- 得到可供后续实验统一比较的正式 baseline。
+- 只运行模型推理，不训练、不更新模型参数。
+- 不修改 Stage 2 生成的正式 eval。
+- 后续所有训练模型都必须与该 baseline 使用同一份 eval 和评分协议。
 
 ## Formal Evaluation Plan
 
@@ -85,10 +83,13 @@ Stage 2 - Build Formal Number Theory Evaluation Set
 - Stage 2: 实现 `scripts/prepare_data.py --mode build_eval --max_eval_samples 200`。
 - Stage 2: 更新 `scripts/eval_math.py --audit_data`，输出正式 eval 审计文件。
 - Stage 2: 更新 `configs/baseline_eval.yaml` 指向正式 eval 文件。
+- Stage 2: 正式 eval 已在远端生成并通过审计，共 200 道 rule-based subset 数论题。
+- Stage 3: 实现 `scripts/eval_math.py --config configs/baseline_eval.yaml` 的正式 baseline
+  推理、Math-Verify + fallback 评分、汇总指标和错误分析输出。
 
 ## Next Stage
 
-Stage 3 - Formal Baseline Evaluation。只有在用户确认 Stage 2 结果合格后才能进入。
+Stage 4 - Prepare Number Theory SFT Data。只有在用户确认 Stage 3 baseline 结果完成并保存后才能进入。
 
 ## Git Rule
 

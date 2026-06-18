@@ -1,7 +1,4 @@
-"""Math scoring utilities for NumberTheory-Qwen.
-
-This script does not load models or run inference.
-"""
+"""Math scoring, data audit, and formal baseline evaluation."""
 
 from __future__ import annotations
 
@@ -9,6 +6,7 @@ import argparse
 import json
 import re
 import unicodedata
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -375,6 +373,357 @@ def audit_data(data_file: Path) -> None:
     print(f"Wrote {output_path}")
 
 
+def _load_yaml(path: Path) -> dict[str, Any]:
+    try:
+        import yaml
+    except ImportError as exc:
+        raise RuntimeError("PyYAML is required. Run: pip install pyyaml") from exc
+
+    with path.open("r", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
+    if not isinstance(config, dict):
+        raise ValueError(f"Config must contain a YAML mapping: {path}")
+    return config
+
+
+def _required_config_value(config: dict[str, Any], key: str) -> Any:
+    value = config.get(key)
+    if value is None or value == "":
+        raise ValueError(f"Missing required config value: {key}")
+    return value
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _row_value(row: dict[str, Any], *keys: str, default: Any = "") -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and value != "":
+            return value
+    return default
+
+
+def _render_prompt(template: str, problem: str) -> str:
+    if "{problem}" not in template:
+        raise ValueError("prompt_template must contain the literal placeholder {problem}")
+    return template.replace("{problem}", problem)
+
+
+def _primary_prediction(model_output: str) -> tuple[str, bool]:
+    boxed_answer = extract_boxed_answer(model_output)
+    if boxed_answer:
+        return boxed_answer, True
+
+    explicit_candidates: list[tuple[int, str]] = []
+    for pattern in ANSWER_TRIGGER_PATTERNS + CONCLUSION_PATTERNS:
+        for match in re.finditer(pattern, model_output):
+            candidate = match.group(1).strip()
+            if candidate:
+                explicit_candidates.append((match.start(), candidate))
+
+    if explicit_candidates:
+        return max(explicit_candidates, key=lambda item: item[0])[1], False
+    return "", False
+
+
+def _score_baseline_row(row: dict[str, Any], model_output: str, index: int) -> dict[str, Any]:
+    problem = str(_row_value(row, "problem", "question", "prompt"))
+    gold = str(_row_value(row, "answer", "final_answer", "gold", "ground_truth"))
+    pred, boxed_found = _primary_prediction(model_output)
+    gold_type = classify_gold_answer(problem, gold)
+    extraction_success = bool(pred.strip())
+
+    if gold_type == "empty_answer":
+        match = MatchResult(False, "failed")
+        error_type = "possible_gold_error"
+    elif gold_type != "short_answer":
+        match = MatchResult(False, "failed")
+        error_type = "unsuitable_for_rule_eval"
+    elif not extraction_success:
+        match = MatchResult(False, "failed")
+        error_type = "extraction_error"
+    else:
+        match = is_equiv(pred, gold)
+        if match.matched:
+            error_type = "correct"
+        elif not boxed_found:
+            error_type = "format_error"
+        else:
+            error_type = "model_error"
+
+    return {
+        "id": _row_value(row, "id", default=str(index)),
+        "subject": _row_value(row, "subject", "domain", "category", default="number_theory"),
+        "source": _row_value(row, "source"),
+        "difficulty": _row_value(row, "difficulty", default="unknown"),
+        "problem": problem,
+        "gold_answer": gold,
+        "model_output": model_output,
+        "pred_answer": pred,
+        "normalized_pred": normalize_answer(pred),
+        "normalized_gold": normalize_answer(gold),
+        "match_method": match.match_method,
+        "boxed_answer_found": boxed_found,
+        "extraction_success": extraction_success,
+        "is_correct": match.matched,
+        "error_type": error_type,
+    }
+
+
+def _distribution(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+    return dict(sorted(Counter(str(row.get(key, "unknown")) for row in rows).items()))
+
+
+def _build_summary(
+    rows: list[dict[str, Any]],
+    model_name: str,
+    eval_file: str,
+) -> dict[str, Any]:
+    total = len(rows)
+    correct = sum(bool(row["is_correct"]) for row in rows)
+    difficulty_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        difficulty_groups[str(row.get("difficulty") or "unknown")].append(row)
+
+    accuracy_by_difficulty: dict[str, dict[str, Any]] = {}
+    for difficulty, group in sorted(difficulty_groups.items()):
+        group_correct = sum(bool(row["is_correct"]) for row in group)
+        accuracy_by_difficulty[difficulty] = {
+            "total": len(group),
+            "correct": group_correct,
+            "accuracy": group_correct / len(group),
+        }
+
+    return {
+        "model_name": model_name,
+        "eval_file": eval_file,
+        "total": total,
+        "correct": correct,
+        "accuracy": correct / total if total else 0.0,
+        "boxed_answer_rate": (
+            sum(bool(row["boxed_answer_found"]) for row in rows) / total if total else 0.0
+        ),
+        "extraction_success_rate": (
+            sum(bool(row["extraction_success"]) for row in rows) / total if total else 0.0
+        ),
+        "avg_output_length": (
+            sum(len(str(row["model_output"])) for row in rows) / total if total else 0.0
+        ),
+        "error_type_distribution": _distribution(rows, "error_type"),
+        "match_method_distribution": _distribution(rows, "match_method"),
+        "difficulty_distribution": _distribution(rows, "difficulty"),
+        "accuracy_by_difficulty": accuracy_by_difficulty,
+    }
+
+
+def _error_reason(row: dict[str, Any]) -> str:
+    reasons = {
+        "model_error": "已抽取到 boxed 答案，但与标准答案不等价，优先检查推理或计算错误。",
+        "extraction_error": "输出中没有抽取到可评分的最终答案。",
+        "format_error": "未按要求给出 boxed 答案，且抽取到的候选答案不正确。",
+        "possible_gold_error": "标准答案为空或可能存在数据质量问题，需要人工复核。",
+        "unsuitable_for_rule_eval": "题目或答案格式不适合当前短答案规则评分。",
+    }
+    return reasons.get(str(row.get("error_type")), "需要人工检查模型推理与最终答案。")
+
+
+def _select_error_examples(rows: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
+    incorrect = [row for row in rows if not row["is_correct"]]
+    selected: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    for error_type in [
+        "model_error",
+        "extraction_error",
+        "format_error",
+        "possible_gold_error",
+        "unsuitable_for_rule_eval",
+    ]:
+        match = next((row for row in incorrect if row["error_type"] == error_type), None)
+        if match is not None:
+            selected.append(match)
+            seen_ids.add(str(match["id"]))
+
+    for row in incorrect:
+        if len(selected) >= limit:
+            break
+        if str(row["id"]) not in seen_ids:
+            selected.append(row)
+            seen_ids.add(str(row["id"]))
+    return selected[:limit]
+
+
+def _write_error_analysis(
+    path: Path,
+    summary: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> None:
+    lines = [
+        "# Formal Baseline Error Analysis",
+        "",
+        "## Overall Results",
+        "",
+        f"- Model: `{summary['model_name']}`",
+        f"- Eval file: `{summary['eval_file']}`",
+        f"- Total: {summary['total']}",
+        f"- Correct: {summary['correct']}",
+        f"- Final Answer Accuracy: {summary['accuracy']:.2%}",
+        f"- Boxed Answer Rate: {summary['boxed_answer_rate']:.2%}",
+        f"- Extraction Success Rate: {summary['extraction_success_rate']:.2%}",
+        f"- Average Output Length (characters): {summary['avg_output_length']:.2f}",
+        "",
+        "## Error Type Distribution",
+        "",
+        "| Error Type | Count |",
+        "| --- | ---: |",
+    ]
+    for key, value in summary["error_type_distribution"].items():
+        lines.append(f"| {key} | {value} |")
+
+    lines.extend(
+        [
+            "",
+            "## Match Method Distribution",
+            "",
+            "| Match Method | Count |",
+            "| --- | ---: |",
+        ]
+    )
+    for key, value in summary["match_method_distribution"].items():
+        lines.append(f"| {key} | {value} |")
+
+    lines.extend(
+        [
+            "",
+            "## Accuracy By Difficulty",
+            "",
+            "| Difficulty | Total | Correct | Accuracy |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+    )
+    for difficulty, metrics in summary["accuracy_by_difficulty"].items():
+        lines.append(
+            f"| {difficulty} | {metrics['total']} | {metrics['correct']} | "
+            f"{metrics['accuracy']:.2%} |"
+        )
+
+    lines.extend(["", "## Typical Error Examples", ""])
+    examples = _select_error_examples(rows)
+    if not examples:
+        lines.append("No incorrect examples were found.")
+
+    for number, row in enumerate(examples, start=1):
+        lines.extend(
+            [
+                f"### {number}. {row['id']}",
+                "",
+                f"- Difficulty: {row['difficulty']}",
+                f"- Problem: {_shorten(row['problem'], 300)}",
+                f"- Gold answer: {row['gold_answer']}",
+                f"- Pred answer: {row['pred_answer'] or '[empty]'}",
+                f"- Match method: {row['match_method']}",
+                f"- Error type: {row['error_type']}",
+                f"- Model output excerpt: {_shorten(row['model_output'], 500)}",
+                f"- Possible reason: {_error_reason(row)}",
+                "",
+            ]
+        )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def run_formal_evaluation(config_path: Path) -> None:
+    config = _load_yaml(config_path)
+    model_name = str(_required_config_value(config, "model_name"))
+    eval_file = Path(str(_required_config_value(config, "eval_file")))
+    output_path = Path(str(_required_config_value(config, "output_path")))
+    summary_path = Path(str(_required_config_value(config, "summary_path")))
+    error_analysis_path = Path(str(_required_config_value(config, "error_analysis_path")))
+    prompt_template = str(_required_config_value(config, "prompt_template"))
+    max_eval_samples = int(config.get("max_eval_samples", 200))
+    max_new_tokens = int(config.get("max_new_tokens", 2048))
+    do_sample = bool(config.get("do_sample", False))
+
+    if not eval_file.exists():
+        raise FileNotFoundError(
+            f"Formal eval file not found: {eval_file}. Generate it in Stage 2 before Stage 3."
+        )
+
+    rows = _read_jsonl(eval_file)[:max_eval_samples]
+    if not rows:
+        raise ValueError(f"No evaluation rows found in {eval_file}")
+
+    try:
+        import torch
+        from tqdm import tqdm
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except ImportError as exc:
+        raise RuntimeError("Install requirements.txt in the remote ntqwen environment.") from exc
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("CUDA is required. Run formal evaluation on the remote GPU server.")
+
+    print(f"Loading tokenizer: {model_name}")
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    print(f"Loading model in bfloat16 with device_map='auto': {model_name}")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=torch.bfloat16,
+        device_map="auto",
+        low_cpu_mem_usage=True,
+    )
+    model.eval()
+
+    generation_kwargs: dict[str, Any] = {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "pad_token_id": tokenizer.pad_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
+    }
+    if do_sample:
+        generation_kwargs["temperature"] = float(config.get("temperature", 1.0))
+        generation_kwargs["top_p"] = float(config.get("top_p", 1.0))
+
+    results: list[dict[str, Any]] = []
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    for index, row in enumerate(tqdm(rows, desc="Formal baseline evaluation"), start=1):
+        problem = str(_row_value(row, "problem", "question", "prompt"))
+        user_prompt = _render_prompt(prompt_template, problem)
+        chat_text = tokenizer.apply_chat_template(
+            [{"role": "user", "content": user_prompt}],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        model_inputs = tokenizer(chat_text, return_tensors="pt")
+        model_inputs = {key: value.to(model.device) for key, value in model_inputs.items()}
+        input_length = model_inputs["input_ids"].shape[1]
+
+        with torch.inference_mode():
+            generated = model.generate(**model_inputs, **generation_kwargs)
+
+        generated_tokens = generated[0, input_length:]
+        model_output = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+        results.append(_score_baseline_row(row, model_output, index))
+
+        # Keep the required output file valid and recoverable during a long remote run.
+        _write_json(output_path, results)
+
+    summary = _build_summary(results, model_name, str(eval_file))
+    _write_json(summary_path, summary)
+    _write_error_analysis(error_analysis_path, summary, results)
+    print(f"Wrote {output_path}")
+    print(f"Wrote {summary_path}")
+    print(f"Wrote {error_analysis_path}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate NumberTheory-Qwen answers.")
     parser.add_argument("--test_evaluator", action="store_true", help="Run evaluator unit tests.")
@@ -401,7 +750,8 @@ def main() -> None:
         return
 
     if args.config:
-        raise NotImplementedError("--config formal evaluation will be implemented in Stage 3.")
+        run_formal_evaluation(Path(args.config))
+        return
 
     raise SystemExit("Choose --test_evaluator, --audit_data, or --config.")
 
