@@ -6,6 +6,7 @@ import argparse
 import inspect
 import json
 import os
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -79,7 +80,7 @@ def _as_token_ids(value: Any, tokenizer: Any, context: str) -> list[int]:
             add_special_tokens=False,
             truncation=False,
         )["input_ids"]
-    elif isinstance(value, dict):
+    elif isinstance(value, Mapping):
         value = value.get("input_ids")
     elif hasattr(value, "tolist"):
         value = value.tolist()
