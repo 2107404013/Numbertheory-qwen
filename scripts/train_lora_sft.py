@@ -98,35 +98,35 @@ class AssistantOnlyDataset:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ]
-            full_messages = [
-                *prompt_messages,
-                {"role": "assistant", "content": solution},
-            ]
-
             prompt_ids = tokenizer.apply_chat_template(
                 prompt_messages,
                 tokenize=True,
                 add_generation_prompt=True,
             )
-            full_ids = tokenizer.apply_chat_template(
-                full_messages,
-                tokenize=True,
-                add_generation_prompt=False,
-            )
+            assistant_text = solution
+            if tokenizer.eos_token and not assistant_text.endswith(tokenizer.eos_token):
+                assistant_text += tokenizer.eos_token
+            assistant_ids = tokenizer(
+                assistant_text,
+                add_special_tokens=False,
+                truncation=False,
+            )["input_ids"]
             prompt_ids = list(prompt_ids)
-            full_ids = list(full_ids)
+            assistant_ids = list(assistant_ids)
 
-            if full_ids[: len(prompt_ids)] != prompt_ids:
+            if not prompt_ids:
                 raise ValueError(
-                    f"Tokenizer chat template produced a non-prefix assistant prompt at sample {index}."
+                    f"Tokenizer chat template produced no prompt tokens at sample {index}."
                 )
-
-            assistant_ids = full_ids[len(prompt_ids) :]
             if not assistant_ids:
                 raise ValueError(
-                    f"Tokenizer chat template produced no assistant tokens at sample {index}."
+                    f"Tokenizer produced no assistant solution tokens at sample {index}."
                 )
 
+            # The tokenizer chat template supplies the official system/user layout and
+            # assistant generation marker. Encoding the solution separately avoids
+            # version-dependent templates that omit assistant content when rendering
+            # a completed conversation.
             if len(prompt_ids) + len(assistant_ids) > max_seq_len:
                 reserved_assistant = min(len(assistant_ids), min_assistant_tokens)
                 max_prompt_tokens = max_seq_len - reserved_assistant
