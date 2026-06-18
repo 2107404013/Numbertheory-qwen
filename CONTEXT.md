@@ -235,65 +235,44 @@ cache 或重复下载。
 - Stage 2: 固定 200 道正式数论 eval 并完成审计。
 - Stage 3: 原始 1.5B 学生模型正式 baseline，accuracy 0.275。
 - Stage 4: 筛选并验证 5000 条 NuminaMath-1.5 Number Theory SFT 数据。
+- Stage 5.1: safe LoRA 1000 条 pilot 完成，固定 200 题 accuracy 从 0.275 提升到 0.295。
 
 ## Current Status
 
-Current Stage: Stage 5.1 - Fix LoRA SFT
+Current Stage: Stage 5.2 - Safe LoRA Full 5k
 
-Problem:
+Previous Result:
 
 - Initial LoRA caused format and ability degradation。
 - `lora_accuracy = 0.0`。
 - `lora_boxed_answer_rate = 0.035`。
 - `lora_extraction_success_rate = 0.035`。
-- 主要表现为英文长解答、内容与题目不匹配、重复或截断、极少输出 boxed answer。
+- Stage 5.1 safe pilot 已修复初始 LoRA 的格式崩坏。
+- `baseline_accuracy = 0.275`。
+- `safe_lora_pilot_accuracy = 0.295`。
+- boxed answer rate 从 `0.885` 提升到 `0.91`。
+- extraction success rate 从 `0.885` 提升到 `0.915`。
+- improved cases 为 9，regressed cases 为 5。
 
-Fix Plan:
+Stage 5.2 Goal:
 
-- 在 `scripts/prepare_data.py --mode audit_train` 中审计训练数据质量。
-- 使用 Qwen chat template。
-- 严格 assistant-only loss，system/user 和 padding labels 均为 `-100`。
-- 每条有效样本强制追加 `最终答案：\boxed{answer}`，截断时保留该尾行。
-- 异常或空 answer 样本跳过并记录。
-- `learning_rate` 降至 `2e-5`。
-- LoRA target modules 缩小为 `q_proj`、`v_proj`、`o_proj`。
-- 先运行 1000 条 safe pilot。
-- 在完全相同的固定 200 题 eval 上评测并与 Stage 3 baseline 对比。
-
-Stage 5.1 本地实现：
-
-- `configs/lora_sft.yaml`: safe pilot 参数与
-  `outputs/lora_sft_number_theory_safe` 输出目录。
-- `scripts/prepare_data.py`: 输出 `results/train_data_audit.json` 和
-  `results/train_data_audit.md`。
-- `scripts/train_lora_sft.py`: assistant-only loss、强制 boxed 尾行、答案安全截断与
-  pilot 样本上限。
-- `scripts/eval_math.py`: 保持 base model + `PeftModel.from_pretrained` adapter 加载，
-  并增加 `--show_samples`。
-
-初始失败结果不得删除或伪造。安全 pilot 结果尚未运行，不得预填提升。
-
-Previous Stage:
-
-- Stage 4 completed。
-- `train_number_theory_sft_5k.jsonl` 已生成。
-- `actual_train_samples = 5000`。
-- `eval leakage removed = 0`。
-
-Baseline:
-
-- `accuracy = 0.275`。
-- `boxed_answer_rate = 0.885`。
-- `extraction_success_rate = 0.885`。
+- 将 safe LoRA 从 1000 条扩展到完整 5000 条。
+- 保持 Qwen chat template。
+- 保持 assistant-only loss，prompt 和 padding labels 均为 `-100`。
+- 保持强制追加 `最终答案：\boxed{answer}`，并在截断时保留该尾行。
+- 保持 `learning_rate = 2e-5`。
+- 保持 LoRA target modules 为 `q_proj`、`v_proj`、`o_proj`。
+- full adapter 输出到 `outputs/lora_sft_number_theory_safe_5k`。
+- 在完全相同的固定 200 题正式 eval 上评测。
+- 与 Stage 3 baseline 及 Stage 5.1 safe pilot 对比。
 
 训练与评测完成后必须如实记录结果。即使 LoRA accuracy 没有提升，也不得修改正式 eval、
 伪造结果或改变项目路线。
 
 ## Next Stage
 
-- 如果 safe pilot 稳定，再运行完整 5k safe LoRA。
-- 如果 safe pilot 仍失败，则清晰记录 LoRA 未改善，再考虑进入 Teacher Response
-  Distillation。
+- 如果 full 5k 结果稳定或提升，再单独规划 Stage 6 Teacher Response Distillation。
+- 如果 full 5k 退化，则保留 Stage 5.1 pilot 作为 LoRA 结果，并如实记录失败。
 - 当前不得实现 Stage 6。
 
 ## Git Rule

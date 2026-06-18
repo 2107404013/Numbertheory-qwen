@@ -289,9 +289,9 @@ def train(config_path: Path) -> None:
     train_on_assistant_only = bool(config.get("train_on_assistant_only", True))
     force_boxed_answer = bool(config.get("force_boxed_answer", True))
     if not train_on_assistant_only:
-        raise ValueError("Stage 5.1 requires train_on_assistant_only: true")
+        raise ValueError("Safe LoRA training requires train_on_assistant_only: true")
     if not force_boxed_answer:
-        raise ValueError("Stage 5.1 requires force_boxed_answer: true")
+        raise ValueError("Safe LoRA training requires force_boxed_answer: true")
     per_device_batch_size = int(config.get("per_device_train_batch_size", 1))
     gradient_accumulation_steps = int(config.get("gradient_accumulation_steps", 8))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))

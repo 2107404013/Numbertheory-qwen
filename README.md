@@ -133,9 +133,25 @@ Stage 5.1 先审计固定 5k 训练数据，再运行 1000 条安全 pilot，而
 - LoRA 只训练 `q_proj`、`v_proj`、`o_proj`，使用 `r=8`、`alpha=16`。
 - pilot adapter 保存到 `outputs/lora_sft_number_theory_safe`。
 
-训练日志写入 `results/lora_sft_train_log.json`。训练数据主要来自英文数学数据，Stage 5.1
-的目标首先是恢复稳定推理、指令遵循和最终答案格式，不要求中文风格完全统一。只有安全
-pilot 在固定 200 题 eval 上不再崩溃，才允许把 `max_train_samples` 从 1000 改为 5000。
+Stage 5.1 safe pilot 已完成，并在固定 200 题正式 eval 上得到：
+
+- accuracy: 0.295（baseline 为 0.275）
+- boxed_answer_rate: 0.91（baseline 为 0.885）
+- extraction_success_rate: 0.915（baseline 为 0.885）
+- improved_case_count: 9
+- regressed_case_count: 5
+
+该结果说明初始 LoRA 的格式崩坏已经修复，且最终答案准确率有小幅提升。因此 Stage 5.2
+将相同的保守训练方案从 1000 条稳定扩展到完整 5000 条，不进行激进调参：
+
+- `max_train_samples: 5000`
+- 学习率继续保持 `2e-5`
+- 保持 assistant-only loss 和强制 boxed 最终答案
+- 保持 `q_proj`、`v_proj`、`o_proj` 与 `r=8`、`alpha=16`
+- full 5k adapter 保存到 `outputs/lora_sft_number_theory_safe_5k`
+
+训练日志写入 `results/lora_sft_train_log.json`。训练数据主要来自英文数学数据，当前目标
+仍是稳定推理、指令遵循和最终答案格式，不要求中文风格完全统一。
 
 训练完成后必须继续使用 Stage 2 固定的
 `data/processed/public_number_theory_eval.jsonl`（200 道）和 Stage 3 相同评分协议评测，
@@ -163,5 +179,5 @@ Rate 和 Extraction Success Rate。若 LoRA 没有提升，必须如实保留结
 
 ## 当前阶段
 
-当前阶段：Stage 5.1 - Fix LoRA SFT。当前只进行训练数据审计、1000 条安全 pilot 和固定
-200 题评测；不进入 Stage 6。
+当前阶段：Stage 5.2 - Safe LoRA Full 5k Training。当前只进行完整 5000 条 safe LoRA
+训练，并在固定 200 题正式 eval 上与 baseline 和 Stage 5.1 pilot 比较；不进入 Stage 6。

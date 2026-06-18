@@ -1,11 +1,11 @@
-stage: stage-5.1-safe-pilot
+stage: stage-5.2-safe-full-5k
 model_name: Qwen/Qwen2.5-Math-1.5B-Instruct
 train_file: data/processed/train_number_theory_sft_5k.jsonl
 eval_file: data/processed/public_number_theory_eval.jsonl
-output_dir: outputs/lora_sft_number_theory_safe
+output_dir: outputs/lora_sft_number_theory_safe_5k
 train_log: results/lora_sft_train_log.json
 
-max_train_samples: 1000
+max_train_samples: 5000
 max_seq_len: 2048
 min_assistant_tokens: 256
 lora_r: 8
@@ -22,7 +22,7 @@ per_device_train_batch_size: 1
 gradient_accumulation_steps: 16
 bf16: true
 logging_steps: 10
-save_steps: 250
+save_steps: 500
 save_total_limit: 2
 warmup_ratio: 0.05
 weight_decay: 0.0
