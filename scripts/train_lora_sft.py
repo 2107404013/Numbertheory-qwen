@@ -71,6 +71,31 @@ def _render_user_prompt(template: str, problem: str) -> str:
     return rendered
 
 
+def _as_token_ids(value: Any, tokenizer: Any, context: str) -> list[int]:
+    """Normalize chat-template/tokenizer outputs across Transformers versions."""
+    if isinstance(value, str):
+        value = tokenizer(
+            value,
+            add_special_tokens=False,
+            truncation=False,
+        )["input_ids"]
+    elif isinstance(value, dict):
+        value = value.get("input_ids")
+    elif hasattr(value, "tolist"):
+        value = value.tolist()
+
+    if isinstance(value, tuple):
+        value = list(value)
+    if isinstance(value, list) and len(value) == 1 and isinstance(value[0], list):
+        value = value[0]
+    if not isinstance(value, list) or not all(isinstance(token, int) for token in value):
+        raise TypeError(
+            f"{context} must resolve to a flat list of integer token IDs, "
+            f"got {type(value).__name__}"
+        )
+    return value
+
+
 class AssistantOnlyDataset:
     """Tokenize chat examples and mask the system/user prefix from the loss."""
 
@@ -99,21 +124,25 @@ class AssistantOnlyDataset:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ]
-            prompt_ids = tokenizer.apply_chat_template(
+            prompt_output = tokenizer.apply_chat_template(
                 prompt_messages,
                 tokenize=True,
                 add_generation_prompt=True,
             )
+            prompt_ids = _as_token_ids(prompt_output, tokenizer, "chat template output")
             assistant_text = solution
             if tokenizer.eos_token and not assistant_text.endswith(tokenizer.eos_token):
                 assistant_text += tokenizer.eos_token
-            assistant_ids = tokenizer(
+            assistant_output = tokenizer(
                 assistant_text,
                 add_special_tokens=False,
                 truncation=False,
             )["input_ids"]
-            prompt_ids = list(prompt_ids)
-            assistant_ids = list(assistant_ids)
+            assistant_ids = _as_token_ids(
+                assistant_output,
+                tokenizer,
+                "assistant tokenizer output",
+            )
 
             if not prompt_ids:
                 raise ValueError(
