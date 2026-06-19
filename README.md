@@ -196,6 +196,11 @@ Stage 6.1 使用 `Qwen/Qwen2.5-Math-7B-Instruct` 生成 1000 条 teacher respons
 Stage 6.1 只负责生成和审计教师数据，不训练学生模型。后续 Stage 6.2 才会使用通过质量
 检查的 teacher pilot 数据训练 1.5B 学生模型。
 
+Stage 6.1 完成 1000 条生成后，先对教师模型进行固定 200 题上限评测。评测仍复用
+`scripts/eval_math.py` 和 Stage 2 的正式评测集；使用 `torchrun` 启动两个进程，每张
+RTX 4090 独立加载一份 4-bit 教师模型并各处理 100 题。各进程写入独立 rank 文件，
+最后由 rank 0 按原题顺序合并为 `results/teacher_7b_eval.json`，避免并发覆盖。
+
 ## 本地与远端运行规则
 
 本地 Windows 只用于 VSCode/Codex 编辑代码，不运行模型推理、训练、评测，也不下载模型权重。

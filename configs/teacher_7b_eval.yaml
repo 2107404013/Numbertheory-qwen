@@ -1,0 +1,17 @@
+model_name: Qwen/Qwen2.5-Math-7B-Instruct
+eval_file: data/processed/public_number_theory_eval.jsonl
+output_path: results/teacher_7b_eval.json
+summary_path: results/teacher_7b_summary.json
+error_analysis_path: results/teacher_7b_error_analysis.md
+
+max_eval_samples: 200
+max_new_tokens: 2048
+temperature: 0.0
+top_p: 1.0
+do_sample: false
+load_in_4bit: true
+
+prompt_template: |
+  你是一名高中数学竞赛数论教练。请一步步推理下面的数论题，并将最终答案写在 \boxed{} 中。
+
+  题目：{problem}

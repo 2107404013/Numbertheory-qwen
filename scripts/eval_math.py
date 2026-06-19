@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import unicodedata
 from collections import Counter, defaultdict
@@ -398,6 +399,10 @@ def _write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _rank_output_path(path: Path, rank: int) -> Path:
+    return path.with_name(f"{path.stem}.rank{rank}{path.suffix}")
+
+
 def _row_value(row: dict[str, Any], *keys: str, default: Any = "") -> Any:
     for key in keys:
         value = row.get(key)
@@ -657,6 +662,11 @@ def run_formal_evaluation(
     max_eval_samples = int(config.get("max_eval_samples", 200))
     max_new_tokens = int(config.get("max_new_tokens", 2048))
     do_sample = bool(config.get("do_sample", False))
+    load_in_4bit = bool(config.get("load_in_4bit", False))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    distributed = world_size > 1
 
     if not eval_file.exists():
         raise FileNotFoundError(
@@ -670,25 +680,56 @@ def run_formal_evaluation(
     try:
         import torch
         from tqdm import tqdm
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     except ImportError as exc:
         raise RuntimeError("Install requirements.txt in the remote ntqwen environment.") from exc
 
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is required. Run formal evaluation on the remote GPU server.")
 
+    dist = None
+    if distributed:
+        if world_size > torch.cuda.device_count():
+            raise RuntimeError(
+                f"torchrun requested {world_size} processes, but only "
+                f"{torch.cuda.device_count()} visible CUDA devices are available."
+            )
+        import torch.distributed as dist_module
+
+        dist = dist_module
+        torch.cuda.set_device(local_rank)
+        dist.init_process_group(backend="nccl")
+        print(
+            f"[rank {rank}] evaluating {len(rows[rank::world_size])} / {len(rows)} "
+            f"samples on cuda:{local_rank}"
+        )
+
     print(f"Loading tokenizer: {model_name}")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    print(f"Loading model in bfloat16 with device_map='auto': {model_name}")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.bfloat16,
-        device_map="auto",
-        low_cpu_mem_usage=True,
-    )
+    model_kwargs: dict[str, Any] = {
+        "torch_dtype": torch.bfloat16,
+        "low_cpu_mem_usage": True,
+    }
+    if load_in_4bit:
+        model_kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
+    if distributed:
+        model_kwargs["device_map"] = {"": local_rank}
+        placement = f"cuda:{local_rank}"
+    else:
+        model_kwargs["device_map"] = "auto"
+        placement = "device_map='auto'"
+
+    precision = "4-bit NF4" if load_in_4bit else "bfloat16"
+    print(f"Loading model in {precision} on {placement}: {model_name}")
+    model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
     evaluated_model_name = model_name
     if adapter_path is not None:
         if not adapter_path.exists():
@@ -715,7 +756,29 @@ def run_formal_evaluation(
     results: list[dict[str, Any]] = []
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    for index, row in enumerate(tqdm(rows, desc="Formal evaluation"), start=1):
+    indexed_rows = list(enumerate(rows, start=1))
+    if distributed:
+        indexed_rows = indexed_rows[rank::world_size]
+        worker_output_path = _rank_output_path(output_path, rank)
+        if worker_output_path.exists():
+            existing = _load_json(worker_output_path)
+            if not isinstance(existing, list):
+                raise ValueError(f"Rank output must contain a JSON array: {worker_output_path}")
+            results = [
+                row
+                for row in existing
+                if isinstance(row, dict) and isinstance(row.get("_eval_index"), int)
+            ]
+            print(f"[rank {rank}] resuming {len(results)} completed samples")
+        completed_indices = {int(row["_eval_index"]) for row in results}
+        indexed_rows = [
+            (index, row) for index, row in indexed_rows if index not in completed_indices
+        ]
+    else:
+        worker_output_path = output_path
+
+    progress_desc = f"Formal evaluation rank {rank}" if distributed else "Formal evaluation"
+    for index, row in tqdm(indexed_rows, desc=progress_desc):
         problem = str(_row_value(row, "problem", "question", "prompt"))
         user_prompt = _render_prompt(prompt_template, problem)
         chat_text = tokenizer.apply_chat_template(
@@ -732,17 +795,63 @@ def run_formal_evaluation(
 
         generated_tokens = generated[0, input_length:]
         model_output = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
-        results.append(_score_baseline_row(row, model_output, index))
+        scored = _score_baseline_row(row, model_output, index)
+        if distributed:
+            scored["_eval_index"] = index
+        results.append(scored)
 
         # Keep the required output file valid and recoverable during a long remote run.
-        _write_json(output_path, results)
+        _write_json(worker_output_path, results)
 
-    summary = _build_summary(results, evaluated_model_name, str(eval_file))
-    _write_json(summary_path, summary)
-    _write_error_analysis(error_analysis_path, summary, results)
-    print(f"Wrote {output_path}")
-    print(f"Wrote {summary_path}")
-    print(f"Wrote {error_analysis_path}")
+    if distributed:
+        assert dist is not None
+        dist.barrier()
+        if rank == 0:
+            merged_by_index: dict[int, dict[str, Any]] = {}
+            for worker_rank in range(world_size):
+                shard_path = _rank_output_path(output_path, worker_rank)
+                shard_rows = _load_json(shard_path)
+                if not isinstance(shard_rows, list):
+                    raise ValueError(f"Rank output must contain a JSON array: {shard_path}")
+                for result in shard_rows:
+                    eval_index = int(result["_eval_index"])
+                    if eval_index in merged_by_index:
+                        raise ValueError(f"Duplicate evaluation index across rank files: {eval_index}")
+                    cleaned = dict(result)
+                    cleaned.pop("_eval_index", None)
+                    merged_by_index[eval_index] = cleaned
+
+            expected_indices = set(range(1, len(rows) + 1))
+            actual_indices = set(merged_by_index)
+            if actual_indices != expected_indices:
+                missing = sorted(expected_indices - actual_indices)
+                extra = sorted(actual_indices - expected_indices)
+                raise RuntimeError(
+                    f"Distributed evaluation merge is incomplete. "
+                    f"missing={missing[:10]}, extra={extra[:10]}"
+                )
+
+            results = [merged_by_index[index] for index in range(1, len(rows) + 1)]
+            _write_json(output_path, results)
+            summary = _build_summary(results, evaluated_model_name, str(eval_file))
+            summary["distributed_world_size"] = world_size
+            summary["load_in_4bit"] = load_in_4bit
+            _write_json(summary_path, summary)
+            _write_error_analysis(error_analysis_path, summary, results)
+            print(f"Merged {world_size} rank files into {output_path}")
+            print(f"Wrote {summary_path}")
+            print(f"Wrote {error_analysis_path}")
+        dist.barrier()
+        dist.destroy_process_group()
+    else:
+        summary = _build_summary(results, evaluated_model_name, str(eval_file))
+        summary["distributed_world_size"] = 1
+        summary["load_in_4bit"] = load_in_4bit
+        _write_json(summary_path, summary)
+        _write_error_analysis(error_analysis_path, summary, results)
+        print(f"Wrote {output_path}")
+        print(f"Wrote {summary_path}")
+        print(f"Wrote {error_analysis_path}")
 
 
 def _load_json(path: Path) -> Any:

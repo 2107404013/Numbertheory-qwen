@@ -267,6 +267,10 @@ Stage 6.1 Goal:
 - 生成数据保存到 `data/processed/train_number_theory_teacher_1k.jsonl`，不提交 GitHub。
 - 生成 `results/teacher_data_summary.json` 和 `results/teacher_data_audit.md`。
 - 支持每 50 条保存和按样本 ID 断点续跑。
+- 教师数据 pilot 完成后，先使用 `configs/teacher_7b_eval.yaml` 在固定 200 题上执行
+  7B 教师模型双卡分片上限评测。
+- 双卡评测由 `torchrun` 启动两个进程，每张 GPU 独立处理 100 题并写独立 rank 文件，
+  rank 0 最终合并结果，不能让多个进程直接写同一个 JSON 文件。
 - 本阶段不训练学生模型。
 
 ## Next Stage
