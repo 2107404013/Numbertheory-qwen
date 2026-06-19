@@ -72,33 +72,45 @@
 
 ## 当前阶段与下一步
 
-Current Stage：Stage 6.2.1 - Strict Teacher Data Repair
+Current Stage：Stage 6A - Teacher Tournament
 
-不要继续使用 666 数据训练，也不要对 3 epoch 模型做完整评测。下一步：
+Strict Teacher Data Repair 已完成：排除 67 条 fallback 后得到 599 条严格数据。Strict
+Teacher LoRA 1 epoch 的 50 题 preview 为 accuracy `0.260`、boxed `0.860`、extraction
+`0.880`；相对同一前 50 题 baseline 改善/退步 `2/4`，仅 8 条训练解法发生截断。该路线
+未通过预设门槛，不做完整 200 题评测，也不增加 epoch。
 
-1. 修复 `scripts/generate_teacher_data.py`：安全过滤明确排除 fallback，并在审计摘要中记录排除数量。
-2. 从原始 1000 条重新生成严格数据集，预期 599 条：`data/processed/train_number_theory_teacher_strict_599.jsonl`。
-3. 创建严格版 1-epoch 配置；从原始 1.5B base 开始，使用 assistant-only loss、学习率 `2e-5` 和双卡训练。
-4. 先做固定评测集前 50 题 preview；accuracy、boxed 和 extraction 均无明显退化后，才运行完整 200 题。
-5. 若严格 599 仍不能超过 Safe LoRA 1k，则结束 Teacher LoRA 路线并整理失败诊断，不盲目增加数据量或 epoch。
+Stage 6A 目标：
+
+1. 在固定 200 题正式 eval 上比较候选教师，不修改或重新抽样评测集。
+2. 每个候选使用训练集固定前 300 条生成相同 teacher response pilot。
+3. 比较 answer match、中文比例、boxed、严格 safe rate 和平均输出长度。
+4. 结合生成速度、单卡 4bit 显存稳定性选择教师，不只按模型大小推荐。
+
+候选教师：
+
+- `Qwen/Qwen2.5-Math-7B-Instruct`：已测，accuracy `0.320`，作为基准。
+- `deepseek-ai/DeepSeek-R1-Distill-Qwen-14B`。
+- `AI-MO/NuminaMath-7B-CoT`。
+
+下一阶段仅在候选教师同时具有更强 eval accuracy 和稳定 teacher safe rate 时，生成
+1000-2000 条严格安全教师回答并重新评估 Teacher LoRA。Stage 6A 不训练学生、不进入
+GRPO、不做 logits 蒸馏。
 
 ## 下一步建议修改的文件
 
-- 修改：`scripts/generate_teacher_data.py`
-- 新增：`configs/lora_teacher_sft_strict_599.yaml`
-- 新增：`configs/teacher_lora_strict_599_preview_eval.yaml`
-- 建议结果文件：
-  - `results/teacher_data_strict_599_summary.json`
-  - `results/lora_teacher_sft_strict_599_train_log.json`
-  - `results/lora_teacher_sft_strict_599_preview_summary.json`
-- 最终根据结果更新：`README.md`、`CONTEXT.md`、`data/README.md`
+- 使用：`configs/teacher_tournament.yaml`
+- 候选评测输出：`results/teacher_summary_<model_tag>.json`
+- 300 条 pilot 输出：`results/teacher_pilot_summary_<model_tag>.json`
+- 汇总输出：`results/teacher_tournament_summary.json` 和 `.md`
+- 两个候选完成后更新 `README.md` 和 `CONTEXT.md` 的最终教师选择结论。
 
 ## 已修改或新增的主要文件
 
 - `scripts/prepare_data.py`：构建训练集和固定评测集。
-- `scripts/eval_math.py`：Math-Verify、fallback 评分、逐题结果、双卡评测和比较报告。
+- `scripts/eval_math.py`：Math-Verify、fallback 评分、逐题结果、双卡评测、模型/4bit CLI 覆盖和比较报告。
 - `scripts/train_lora_sft.py`：LoRA SFT、assistant-only loss、`solution_field`、boxed-aware 截断和双卡训练支持。
-- `scripts/generate_teacher_data.py`：7B 教师生成与安全过滤；当前必须修复 fallback 漏洞。
+- `scripts/generate_teacher_data.py`：任意候选教师生成、严格安全过滤和 tournament 汇总。
+- `configs/teacher_tournament.yaml`：Stage 6A 两个候选教师与固定 300 条 pilot 配置。
 - `configs/teacher_generate.yaml`：教师数据生成。
 - `configs/lora_teacher_sft.yaml`：Teacher LoRA 666，1 epoch。
 - `configs/lora_teacher_sft_3ep.yaml`：Teacher LoRA 666，3 epoch 诊断实验。
@@ -117,7 +129,6 @@ Current Stage：Stage 6.2.1 - Strict Teacher Data Repair
 
 1. 阅读本文件、`README.md` 和 `data/README.md`。
 2. 检查 `git status`，不要覆盖未提交改动。
-3. 先完成 fallback 过滤漏洞和严格 599 配置，不要直接训练。
+3. 先完成 Stage 6A 候选教师评测和 300 条 pilot，不要训练学生模型。
 4. 只给用户手动命令，不自动运行训练、评测或 Git。
 5. 每条远端命令附文字说明、预计耗时和成功标志。
-

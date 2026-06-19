@@ -647,9 +647,11 @@ def run_formal_evaluation(
     output_override: Path | None = None,
     summary_output_override: Path | None = None,
     error_analysis_output_override: Path | None = None,
+    model_name_override: str | None = None,
+    load_in_4bit_override: bool | None = None,
 ) -> None:
     config = _load_yaml(config_path)
-    model_name = str(_required_config_value(config, "model_name"))
+    model_name = model_name_override or str(_required_config_value(config, "model_name"))
     eval_file = Path(str(_required_config_value(config, "eval_file")))
     output_path = output_override or Path(str(_required_config_value(config, "output_path")))
     summary_path = summary_output_override or Path(
@@ -662,7 +664,11 @@ def run_formal_evaluation(
     max_eval_samples = int(config.get("max_eval_samples", 200))
     max_new_tokens = int(config.get("max_new_tokens", 2048))
     do_sample = bool(config.get("do_sample", False))
-    load_in_4bit = bool(config.get("load_in_4bit", False))
+    load_in_4bit = (
+        bool(config.get("load_in_4bit", False))
+        if load_in_4bit_override is None
+        else load_in_4bit_override
+    )
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -781,11 +787,14 @@ def run_formal_evaluation(
     for index, row in tqdm(indexed_rows, desc=progress_desc):
         problem = str(_row_value(row, "problem", "question", "prompt"))
         user_prompt = _render_prompt(prompt_template, problem)
-        chat_text = tokenizer.apply_chat_template(
-            [{"role": "user", "content": user_prompt}],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        if getattr(tokenizer, "chat_template", None):
+            chat_text = tokenizer.apply_chat_template(
+                [{"role": "user", "content": user_prompt}],
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            chat_text = user_prompt
         model_inputs = tokenizer(chat_text, return_tensors="pt")
         model_inputs = {key: value.to(model.device) for key, value in model_inputs.items()}
         input_length = model_inputs["input_ids"].shape[1]
@@ -1058,6 +1067,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", default=None, help="Formal evaluation config path.")
     parser.add_argument(
+        "--model_name",
+        default=None,
+        help="Optional model name override for teacher tournament evaluation.",
+    )
+    parser.add_argument(
+        "--load_in_4bit",
+        action="store_true",
+        default=None,
+        help="Load the evaluated model with 4-bit NF4 quantization.",
+    )
+    parser.add_argument(
         "--adapter_path",
         default=None,
         help="Optional LoRA adapter directory. Omit it to evaluate the base model.",
@@ -1126,6 +1146,8 @@ def main() -> None:
             error_analysis_output_override=(
                 Path(args.error_analysis_output) if args.error_analysis_output else None
             ),
+            model_name_override=args.model_name,
+            load_in_4bit_override=args.load_in_4bit,
         )
         return
 

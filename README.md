@@ -223,6 +223,30 @@ assistant-only loss、强制 boxed answer、低学习率和保守 target modules
 如果 Teacher LoRA 明确提升，再考虑扩展到 2k 或 3k 安全教师数据；如果没有提升，先检查
 教师数据质量、长解法截断和训练策略。本阶段不进入 GRPO，也不进行 logits 蒸馏。
 
+严格过滤进一步排除了由脚本追加 gold boxed answer 形成的 fallback 样本，得到 599 条干净
+教师数据。Strict Teacher LoRA 的 50 题 preview accuracy 为 0.26，低于同一前 50 题的
+1.5B baseline 0.30；boxed rate 为 0.86，extraction rate 为 0.88。该结果说明格式稳定性
+尚可，但教师监督没有改善推理正确率，因此不继续完整 200 题评测，也不增加训练 epoch。
+
+## Teacher Tournament
+
+Stage 6A 在进行更大规模 teacher response distillation 前先选择教师。已有
+`Qwen/Qwen2.5-Math-7B-Instruct` 在固定 200 题上的 accuracy 约为 0.32，优势有限；教师
+选择不能只看参数规模或裸跑正确率，还必须检查给定题目与 gold answer 后能否稳定生成中文、
+boxed、最终答案正确且不依赖脚本 fallback 的安全解法。
+
+候选教师为：
+
+- `Qwen/Qwen2.5-Math-7B-Instruct`：已有基准，不重复评测；
+- `deepseek-ai/DeepSeek-R1-Distill-Qwen-14B`；
+- `AI-MO/NuminaMath-7B-CoT`。
+
+两个新候选分别在固定 200 题正式 eval 上评测，并针对训练集固定前 300 条生成 teacher
+response pilot。所有候选使用相同评测 prompt、评分器、300 条题目和 teacher prompt。
+最终选择综合考虑 eval accuracy、严格 safe rate、answer match rate、中文比例、boxed 和
+抽取稳定性，并记录 4bit 单卡运行稳定性。Stage 6A 不训练学生、不进入 GRPO，也不进行
+logits 蒸馏。
+
 ## 本地与远端运行规则
 
 本地 Windows 只用于 VSCode/Codex 编辑代码，不运行模型推理、训练、评测，也不下载模型权重。
@@ -243,6 +267,6 @@ assistant-only loss、强制 boxed answer、低学习率和保守 target modules
 
 ## 当前阶段
 
-当前阶段：Stage 6.2 - Teacher LoRA SFT Pilot。使用 666 条经过答案一致性、中文比例和
-boxed 格式过滤的安全教师回答训练 1.5B LoRA，并在固定 200 题上与 baseline 和
-Safe LoRA 1k 比较。
+当前阶段：Stage 6A - Teacher Tournament。使用固定 200 题正式 eval 和相同的 300 条
+teacher response pilot，对 DeepSeek-R1-Distill-Qwen-14B、NuminaMath-7B-CoT 与已有
+Qwen2.5-Math-7B 基准进行比较。本阶段只做教师选择，不训练学生模型。
