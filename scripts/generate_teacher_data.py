@@ -339,13 +339,18 @@ SAFE_TEACHER_FIELDS = [
     "question_type",
     "has_boxed_answer",
     "teacher_answer_match_gold",
+    "teacher_answer_match_method",
+    "boxed_fallback_appended",
 ]
 
 
-def filter_safe_teacher_data(input_path: Path, output_path: Path) -> None:
-    """Create the reproducible Stage 6.1.5 safe teacher-response dataset."""
-    summary_path = Path("results/teacher_data_safe_filter_summary.json")
-    audit_path = Path("results/teacher_data_safe_filter_audit.md")
+def filter_safe_teacher_data(
+    input_path: Path,
+    output_path: Path,
+    summary_path: Path,
+    audit_path: Path,
+) -> None:
+    """Create a strict teacher dataset without gold-appended fallback answers."""
 
     if not input_path.exists():
         raise FileNotFoundError(f"Teacher data file not found: {input_path}")
@@ -354,9 +359,22 @@ def filter_safe_teacher_data(input_path: Path, output_path: Path) -> None:
     answer_matched = [
         row for row in rows if row.get("teacher_answer_match_gold") is True
     ]
+    fallback_appended = [
+        row for row in rows if row.get("boxed_fallback_appended") is True
+    ]
+    matched_fallback = [
+        row for row in answer_matched if row.get("boxed_fallback_appended") is True
+    ]
+    answer_matched_non_fallback = [
+        row for row in answer_matched if row.get("boxed_fallback_appended") is not True
+    ]
+    fallback_rejected_from_previous_safe = sum(
+        _is_chinese_like(str(row.get("teacher_solution") or ""))
+        for row in matched_fallback
+    )
     matched_chinese = [
         row
-        for row in answer_matched
+        for row in answer_matched_non_fallback
         if _is_chinese_like(str(row.get("teacher_solution") or ""))
     ]
 
@@ -376,6 +394,7 @@ def filter_safe_teacher_data(input_path: Path, output_path: Path) -> None:
         safe_row["teacher_solution"] = solution
         safe_row["has_boxed_answer"] = True
         safe_row["teacher_answer_match_gold"] = True
+        safe_row["boxed_fallback_appended"] = False
         safe_rows.append(safe_row)
 
     _atomic_write_jsonl(output_path, safe_rows)
@@ -383,11 +402,19 @@ def filter_safe_teacher_data(input_path: Path, output_path: Path) -> None:
         "input_total": len(rows),
         "answer_match_count": len(answer_matched),
         "answer_mismatch_count": len(rows) - len(answer_matched),
-        "matched_but_chinese_not_qualified": len(answer_matched) - len(matched_chinese),
+        "fallback_appended_count": len(fallback_appended),
+        "answer_matched_fallback_count": len(matched_fallback),
+        "fallback_rejected_from_previous_safe_count": (
+            fallback_rejected_from_previous_safe
+        ),
+        "answer_matched_non_fallback_count": len(answer_matched_non_fallback),
+        "matched_but_chinese_not_qualified": (
+            len(answer_matched_non_fallback) - len(matched_chinese)
+        ),
         "matched_chinese_but_empty_count": rejected_empty,
         "matched_chinese_but_missing_boxed_count": rejected_missing_boxed,
-        "safe_teacher_data_count": len(safe_rows),
-        "safe_data_file": str(output_path),
+        "strict_teacher_data_count": len(safe_rows),
+        "strict_data_file": str(output_path),
     }
     _write_json(summary_path, summary)
 
@@ -399,6 +426,16 @@ def filter_safe_teacher_data(input_path: Path, output_path: Path) -> None:
         f"- 输入教师样本：{summary['input_total']}",
         f"- 最终答案与 gold 匹配：{summary['answer_match_count']}",
         f"- 最终答案与 gold 不匹配：{summary['answer_mismatch_count']}",
+        f"- 原始数据包含 fallback：{summary['fallback_appended_count']}",
+        f"- 答案匹配但属于 fallback：{summary['answer_matched_fallback_count']}",
+        (
+            "- 从旧版安全数据口径中排除的 fallback："
+            f"{summary['fallback_rejected_from_previous_safe_count']}"
+        ),
+        (
+            "- 答案匹配且非 fallback："
+            f"{summary['answer_matched_non_fallback_count']}"
+        ),
         (
             "- 答案匹配但中文比例不合格："
             f"{summary['matched_but_chinese_not_qualified']}"
@@ -408,12 +445,13 @@ def filter_safe_teacher_data(input_path: Path, output_path: Path) -> None:
             "- 中文合格但缺少 boxed 答案："
             f"{summary['matched_chinese_but_missing_boxed_count']}"
         ),
-        f"- 最终安全教师样本：{summary['safe_teacher_data_count']}",
-        f"- 安全数据文件：`{summary['safe_data_file']}`",
+        f"- 最终严格教师样本：{summary['strict_teacher_data_count']}",
+        f"- 严格数据文件：`{summary['strict_data_file']}`",
         "",
         "## 为什么只保留安全样本",
         "",
         "- Teacher SFT 不能使用最终答案与 gold 不匹配的样本，否则会把教师错误直接监督给学生模型。",
+        "- 脚本追加 gold 形成的 boxed fallback 不属于教师独立推理，必须排除。",
         "- 中文比例不合格的解法会重新引入训练数据与中文固定评测 prompt 之间的分布差异。",
         "- 空输出或缺少 `\\boxed{}` 的样本不满足当前项目的统一回答协议。",
         "- 少量高质量、答案可验证的数据优先于大量低质量或存在标签噪声的数据。",
@@ -668,6 +706,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--input_file", help="Input teacher JSONL for --filter_safe.")
     parser.add_argument("--output_file", help="Output safe JSONL for --filter_safe.")
+    parser.add_argument(
+        "--summary_file",
+        default="results/teacher_data_strict_599_summary.json",
+        help="Strict filter summary JSON path.",
+    )
+    parser.add_argument(
+        "--audit_file",
+        default="results/teacher_data_strict_599_audit.md",
+        help="Strict filter audit Markdown path.",
+    )
     return parser.parse_args()
 
 
@@ -676,7 +724,12 @@ def main() -> None:
     if args.filter_safe:
         if not args.input_file or not args.output_file:
             raise SystemExit("--filter_safe requires --input_file and --output_file.")
-        filter_safe_teacher_data(Path(args.input_file), Path(args.output_file))
+        filter_safe_teacher_data(
+            Path(args.input_file),
+            Path(args.output_file),
+            Path(args.summary_file),
+            Path(args.audit_file),
+        )
         return
     if not args.config:
         raise SystemExit("Generation mode requires --config.")
