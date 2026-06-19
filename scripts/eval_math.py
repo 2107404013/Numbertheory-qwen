@@ -964,6 +964,88 @@ def show_evaluation_samples(path: Path, limit: int) -> None:
         print(str(row.get("model_output") or "")[:1000])
 
 
+def write_teacher_sft_stage_report(output_path: Path) -> None:
+    """Write the Stage 6.2 report from completed evaluation artifacts."""
+    teacher_summary_path = Path("results/lora_teacher_sft_666_summary.json")
+    baseline_comparison_path = Path("results/lora_teacher_sft_666_comparison.json")
+    safe_lora_comparison_path = Path(
+        "results/lora_teacher_sft_666_vs_safe_lora_1k.json"
+    )
+    filter_summary_path = Path("results/teacher_data_safe_filter_summary.json")
+
+    required_paths = [
+        teacher_summary_path,
+        baseline_comparison_path,
+        safe_lora_comparison_path,
+        filter_summary_path,
+    ]
+    missing = [str(path) for path in required_paths if not path.exists()]
+    if missing:
+        raise FileNotFoundError(
+            "Teacher SFT report requires completed filter, evaluation, and comparison "
+            f"artifacts. Missing: {', '.join(missing)}"
+        )
+
+    teacher = _load_json(teacher_summary_path)
+    baseline = _load_json(baseline_comparison_path)
+    safe_lora = _load_json(safe_lora_comparison_path)
+    filtered = _load_json(filter_summary_path)
+    accuracy_delta = float(baseline.get("accuracy_delta", 0.0))
+    decision = (
+        "Teacher SFT 相比 baseline 有提升，可以先复核回归样本，再考虑扩展到 2k 或 3k 安全教师数据。"
+        if accuracy_delta > 0
+        else "Teacher SFT 未超过 baseline，下一步应先检查教师数据质量、截断情况和训练策略，不扩展数据规模。"
+    )
+
+    lines = [
+        "# Stage 6.2 Teacher LoRA SFT Pilot 报告",
+        "",
+        "## 数据选择",
+        "",
+        (
+            f"1000 条教师回答经过答案一致性、中文比例和 boxed 格式过滤后，"
+            f"保留 {filtered.get('safe_teacher_data_count', 0)} 条安全样本。"
+        ),
+        "只使用最终答案与 gold 等价的样本，避免把教师模型的数学错误监督给学生模型。",
+        "",
+        "## 与 NuminaMath LoRA 的区别",
+        "",
+        "Teacher SFT 使用中文、竞赛教练风格并与 gold 对齐的教师解法；此前 NuminaMath LoRA "
+        "主要使用英文原始解法，和中文固定评测 prompt 存在更明显的分布差异。",
+        "",
+        "## 固定 200 题评测",
+        "",
+        f"- Teacher LoRA accuracy：{float(teacher.get('accuracy', 0.0)):.4f}",
+        f"- boxed answer rate：{float(teacher.get('boxed_answer_rate', 0.0)):.4f}",
+        (
+            "- extraction success rate："
+            f"{float(teacher.get('extraction_success_rate', 0.0)):.4f}"
+        ),
+        (
+            "- 相比 1.5B baseline accuracy 变化："
+            f"{float(baseline.get('accuracy_delta', 0.0)):+.4f}"
+        ),
+        (
+            "- 相比 Safe LoRA 1k accuracy 变化："
+            f"{float(safe_lora.get('accuracy_delta', 0.0)):+.4f}"
+        ),
+        f"- 相比 baseline 改善/退步：{baseline.get('improved_case_count', 0)}/"
+        f"{baseline.get('regressed_case_count', 0)}",
+        f"- 相比 Safe LoRA 1k 改善/退步：{safe_lora.get('improved_case_count', 0)}/"
+        f"{safe_lora.get('regressed_case_count', 0)}",
+        "",
+        "## 结论",
+        "",
+        decision,
+        "",
+        "本阶段未进入 GRPO，也未进行 logits 蒸馏。",
+        "",
+    ]
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"Wrote {output_path}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate NumberTheory-Qwen answers.")
     parser.add_argument("--test_evaluator", action="store_true", help="Run evaluator unit tests.")
@@ -1000,6 +1082,11 @@ def parse_args() -> argparse.Namespace:
         help="Print a compact sample view from an evaluation JSON file.",
     )
     parser.add_argument("--limit", type=int, default=8, help="Sample count for --show_samples.")
+    parser.add_argument(
+        "--teacher_stage_report",
+        default=None,
+        help="Write the Stage 6.2 report from completed result artifacts.",
+    )
     return parser.parse_args()
 
 
@@ -1016,6 +1103,10 @@ def main() -> None:
 
     if args.show_samples:
         show_evaluation_samples(Path(args.show_samples), args.limit)
+        return
+
+    if args.teacher_stage_report:
+        write_teacher_sft_stage_report(Path(args.teacher_stage_report))
         return
 
     if args.compare:
@@ -1039,7 +1130,8 @@ def main() -> None:
         return
 
     raise SystemExit(
-        "Choose --test_evaluator, --audit_data, --show_samples, --config, or --compare."
+        "Choose --test_evaluator, --audit_data, --show_samples, --config, "
+        "--compare, or --teacher_stage_report."
     )
 
 

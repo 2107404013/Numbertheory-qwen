@@ -33,4 +33,13 @@ Stage 6.1 会在远端生成 1000 条教师答案试验数据：
 `data/processed/`，不得提交 GitHub；只提交
 `results/teacher_data_summary.json` 和 `results/teacher_data_audit.md`。
 
+Stage 6.1.5 会从 1000 条教师回答中过滤正式安全训练集：
+
+- `data/processed/train_number_theory_teacher_safe_666.jsonl`
+
+过滤要求为教师最终答案与 gold 等价、中文比例合格、解法非空并包含 `\boxed{}`。当前
+1000 条中有 756 条答案匹配，其中 90 条中文比例不合格，最终保留 666 条。Stage 6.2
+只使用这份安全数据训练 Teacher LoRA pilot，不使用答案不匹配的教师回答。该 JSONL
+同样不得提交 GitHub；GitHub 只保存过滤 summary、audit 和后续轻量级评测结果。
+
 不要手动上传大数据、模型权重或 Hugging Face cache 到 GitHub。

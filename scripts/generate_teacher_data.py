@@ -326,6 +326,109 @@ def _write_audit(path: Path, summary: dict[str, Any], rows: list[dict[str, Any]]
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+SAFE_TEACHER_FIELDS = [
+    "id",
+    "subject",
+    "problem",
+    "answer",
+    "original_solution",
+    "teacher_solution",
+    "source",
+    "base_source",
+    "problem_type",
+    "question_type",
+    "has_boxed_answer",
+    "teacher_answer_match_gold",
+]
+
+
+def filter_safe_teacher_data(input_path: Path, output_path: Path) -> None:
+    """Create the reproducible Stage 6.1.5 safe teacher-response dataset."""
+    summary_path = Path("results/teacher_data_safe_filter_summary.json")
+    audit_path = Path("results/teacher_data_safe_filter_audit.md")
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Teacher data file not found: {input_path}")
+
+    rows = _read_jsonl(input_path)
+    answer_matched = [
+        row for row in rows if row.get("teacher_answer_match_gold") is True
+    ]
+    matched_chinese = [
+        row
+        for row in answer_matched
+        if _is_chinese_like(str(row.get("teacher_solution") or ""))
+    ]
+
+    safe_rows: list[dict[str, Any]] = []
+    rejected_empty = 0
+    rejected_missing_boxed = 0
+    for row in matched_chinese:
+        solution = str(row.get("teacher_solution") or "").strip()
+        if not solution:
+            rejected_empty += 1
+            continue
+        if extract_boxed_answer(solution) is None:
+            rejected_missing_boxed += 1
+            continue
+
+        safe_row = {field: row.get(field, "") for field in SAFE_TEACHER_FIELDS}
+        safe_row["teacher_solution"] = solution
+        safe_row["has_boxed_answer"] = True
+        safe_row["teacher_answer_match_gold"] = True
+        safe_rows.append(safe_row)
+
+    _atomic_write_jsonl(output_path, safe_rows)
+    summary = {
+        "input_total": len(rows),
+        "answer_match_count": len(answer_matched),
+        "answer_mismatch_count": len(rows) - len(answer_matched),
+        "matched_but_chinese_not_qualified": len(answer_matched) - len(matched_chinese),
+        "matched_chinese_but_empty_count": rejected_empty,
+        "matched_chinese_but_missing_boxed_count": rejected_missing_boxed,
+        "safe_teacher_data_count": len(safe_rows),
+        "safe_data_file": str(output_path),
+    }
+    _write_json(summary_path, summary)
+
+    audit_lines = [
+        "# 安全教师数据过滤审计",
+        "",
+        "## 过滤结果",
+        "",
+        f"- 输入教师样本：{summary['input_total']}",
+        f"- 最终答案与 gold 匹配：{summary['answer_match_count']}",
+        f"- 最终答案与 gold 不匹配：{summary['answer_mismatch_count']}",
+        (
+            "- 答案匹配但中文比例不合格："
+            f"{summary['matched_but_chinese_not_qualified']}"
+        ),
+        f"- 中文合格但内容为空：{summary['matched_chinese_but_empty_count']}",
+        (
+            "- 中文合格但缺少 boxed 答案："
+            f"{summary['matched_chinese_but_missing_boxed_count']}"
+        ),
+        f"- 最终安全教师样本：{summary['safe_teacher_data_count']}",
+        f"- 安全数据文件：`{summary['safe_data_file']}`",
+        "",
+        "## 为什么只保留安全样本",
+        "",
+        "- Teacher SFT 不能使用最终答案与 gold 不匹配的样本，否则会把教师错误直接监督给学生模型。",
+        "- 中文比例不合格的解法会重新引入训练数据与中文固定评测 prompt 之间的分布差异。",
+        "- 空输出或缺少 `\\boxed{}` 的样本不满足当前项目的统一回答协议。",
+        "- 少量高质量、答案可验证的数据优先于大量低质量或存在标签噪声的数据。",
+        "",
+        "该过滤过程只读取已生成的教师数据，不调用模型，也不修改固定 200 题正式评测集。",
+        "",
+    ]
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    audit_path.write_text("\n".join(audit_lines), encoding="utf-8")
+
+    print(f"Wrote safe teacher data: {output_path}")
+    print(f"Wrote safe filter summary: {summary_path}")
+    print(f"Wrote safe filter audit: {audit_path}")
+
+
 def generate(config_path: Path) -> None:
     import torch
     from tqdm import tqdm
@@ -555,14 +658,28 @@ def generate(config_path: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate the Stage 6.1 teacher-response pilot dataset."
+        description="Generate or safely filter the Stage 6 teacher-response dataset."
     )
-    parser.add_argument("--config", required=True, help="Teacher generation YAML config.")
+    parser.add_argument("--config", help="Teacher generation YAML config.")
+    parser.add_argument(
+        "--filter_safe",
+        action="store_true",
+        help="Filter an existing teacher JSONL into the safe Teacher SFT dataset.",
+    )
+    parser.add_argument("--input_file", help="Input teacher JSONL for --filter_safe.")
+    parser.add_argument("--output_file", help="Output safe JSONL for --filter_safe.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.filter_safe:
+        if not args.input_file or not args.output_file:
+            raise SystemExit("--filter_safe requires --input_file and --output_file.")
+        filter_safe_teacher_data(Path(args.input_file), Path(args.output_file))
+        return
+    if not args.config:
+        raise SystemExit("Generation mode requires --config.")
     generate(Path(args.config))
 
 

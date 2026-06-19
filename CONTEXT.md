@@ -241,7 +241,7 @@ cache 或重复下载。
 
 ## Current Status
 
-Current Stage: Stage 6.1 - Teacher Response Distillation Pilot
+Current Stage: Stage 6.2 - Teacher LoRA SFT Pilot
 
 Previous Stage:
 
@@ -258,26 +258,30 @@ Previous Stage:
 - 最终选择记录在 `results/lora_sft_best_selector.json`，完整分析记录在
   `results/lora_sft_final_report.md`。
 
-Stage 6.1 Goal:
+Completed:
 
-- 使用 `Qwen/Qwen2.5-Math-7B-Instruct` 生成 1000 条中文数论 teacher solution。
-- 输入来自 `data/processed/train_number_theory_sft_5k.jsonl` 的前 1000 条。
-- teacher solution 使用高中竞赛数论教练风格并包含清晰推理步骤。
-- 每条输出必须包含 `\boxed{}` 最终答案，并与 gold answer 做等价检查。
-- 生成数据保存到 `data/processed/train_number_theory_teacher_1k.jsonl`，不提交 GitHub。
-- 生成 `results/teacher_data_summary.json` 和 `results/teacher_data_audit.md`。
-- 支持每 50 条保存和按样本 ID 断点续跑。
-- 教师数据 pilot 完成后，先使用 `configs/teacher_7b_eval.yaml` 在固定 200 题上执行
-  7B 教师模型双卡分片上限评测。
-- 双卡评测由 `torchrun` 启动两个进程，每张 GPU 独立处理 100 题并写独立 rank 文件，
-  rank 0 最终合并结果，不能让多个进程直接写同一个 JSON 文件。
-- 本阶段不训练学生模型。
+- 7B teacher baseline 已在固定 200 题上完成双卡分片评测，accuracy 为 0.32。
+- 1000 条 teacher response 已完成生成，boxed answer rate 为 1.0。
+- 756 条教师最终答案与 gold 匹配，244 条不匹配。
+- 答案匹配样本中有 90 条中文比例不合格。
+- 最终安全教师数据为 666 条，正式路径为
+  `data/processed/train_number_theory_teacher_safe_666.jsonl`。
+- 固定 200 题正式评测集保持不变。
+
+Stage 6.2 Goal:
+
+- 从原始 `Qwen/Qwen2.5-Math-1.5B-Instruct` 开始训练，不接续任何 Stage 5 adapter。
+- 使用 666 条答案匹配、中文合格、内容非空且包含 boxed 答案的教师回答。
+- 训练方式为 LoRA、Qwen chat template 和 assistant-only loss。
+- 使用固定 200 题公开数论 eval 评测 Teacher LoRA 666。
+- 与 1.5B baseline 和 Safe LoRA 1k 做逐题比较。
+- 本阶段不进入 GRPO，不进行 logits 蒸馏。
 
 ## Next Stage
 
-- Stage 6.2 - Teacher LoRA SFT。
-- 使用通过质量审计的 `train_number_theory_teacher_1k.jsonl` 训练学生模型。
-- 当前不得实现或运行 Stage 6.2。
+- 如果 Teacher SFT 提升，扩展到 2k 或 3k 安全教师样本。
+- 如果 Teacher SFT 没有提升，先检查教师数据质量、训练截断和训练策略。
+- GRPO 位于后续阶段，当前不得进入。
 
 ## Git Rule
 

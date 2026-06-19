@@ -6,6 +6,7 @@ import argparse
 import inspect
 import json
 import os
+import re
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -94,6 +95,18 @@ def _as_token_ids(value: Any, tokenizer: Any, context: str) -> list[int]:
     return value
 
 
+def _split_solution_and_final_answer(solution: str, answer: str) -> tuple[str, str]:
+    """Keep a trailing boxed answer in the reserved, non-truncated response tail."""
+    boxed_matches = list(re.finditer(r"\\boxed\s*\{", solution))
+    if boxed_matches and boxed_matches[-1].start() >= max(0, len(solution) - 500):
+        line_start = solution.rfind("\n", 0, boxed_matches[-1].start()) + 1
+        final_text = solution[line_start:].strip()
+        body = solution[:line_start].rstrip()
+        if final_text:
+            return body, f"\n\n{final_text}"
+    return solution, f"\n\n最终答案：\\boxed{{{answer}}}"
+
+
 class AssistantOnlyDataset:
     """Tokenize chat examples and mask the system/user prefix from the loss."""
 
@@ -102,6 +115,7 @@ class AssistantOnlyDataset:
         rows: list[dict[str, Any]],
         tokenizer: Any,
         prompt_template: str,
+        solution_field: str,
         max_seq_len: int,
         min_assistant_tokens: int,
         force_boxed_answer: bool,
@@ -118,7 +132,7 @@ class AssistantOnlyDataset:
 
         for index, row in enumerate(rows, start=1):
             problem = str(row.get("problem") or "").strip()
-            solution = str(row.get("solution") or "").strip()
+            solution = str(row.get(solution_field) or "").strip()
             answer = str(row.get("answer") or "").strip()
             if (
                 not problem
@@ -142,9 +156,12 @@ class AssistantOnlyDataset:
                 add_generation_prompt=True,
             )
             prompt_ids = _as_token_ids(prompt_output, tokenizer, "chat template output")
-            final_answer_text = f"\n\n最终答案：\\boxed{{{answer}}}"
-            solution_output = tokenizer(
+            solution_body, final_answer_text = _split_solution_and_final_answer(
                 solution,
+                answer,
+            )
+            solution_output = tokenizer(
+                solution_body,
                 add_special_tokens=False,
                 truncation=False,
             )["input_ids"]
@@ -282,6 +299,9 @@ def train(config_path: Path) -> None:
     output_dir = Path(str(_required(config, "output_dir")))
     train_log_path = Path(str(config.get("train_log", "results/lora_sft_train_log.json")))
     prompt_template = str(_required(config, "training_prompt_template"))
+    solution_field = str(config.get("solution_field", "solution")).strip()
+    if not solution_field:
+        raise ValueError("solution_field must be a non-empty field name")
     target_modules = list(_required(config, "target_modules"))
     max_seq_len = int(config.get("max_seq_len", 2048))
     min_assistant_tokens = int(config.get("min_assistant_tokens", 256))
@@ -301,6 +321,7 @@ def train(config_path: Path) -> None:
         "status": "running",
         "model_name": model_name,
         "train_file": str(train_file),
+        "solution_field": solution_field,
         "output_dir": str(output_dir),
         "max_train_samples": max_train_samples,
         "num_train_samples_used": 0,
@@ -348,6 +369,7 @@ def train(config_path: Path) -> None:
             rows,
             tokenizer,
             prompt_template,
+            solution_field,
             max_seq_len,
             min_assistant_tokens,
             force_boxed_answer,
