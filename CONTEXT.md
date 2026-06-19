@@ -1,295 +1,123 @@
-# CONTEXT
+# NumberTheory-Qwen 上下文摘要
 
-## Thread Handoff
+更新时间：2026-06-19
 
-本文档是 NumberTheory-Qwen 在 Stage 0 至 Stage 5 实现阶段的上下文摘要，用于新 Thread
-继续后续阶段。开始新阶段前应先阅读本文档、`README.md` 和对应配置，不要重新设计已经
-固定的数据与评分协议。
+## 项目与环境
 
-## Project Identity
+- 本地项目：`D:\pythonfile\Numbertheory-qwen`
+- 远端项目：`/home/ljk/projects/NumberTheory-Qwen`
+- Conda 环境：`ntqwen`
+- 硬件：2× RTX 4090
+- 学生模型：`Qwen/Qwen2.5-Math-1.5B-Instruct`
+- 教师模型：`Qwen/Qwen2.5-Math-7B-Instruct`
+- 固定评测集：`data/processed/public_number_theory_eval.jsonl`，共 200 题，禁止更换或重新抽样。
 
-- Project Name: NumberTheory-Qwen
-- Project Goal: 基于轻量级 Qwen 数学模型构建高中竞赛数论问答助手，并逐阶段提升最终答案正确率和输出规范性。
-- Target Domain: 高中竞赛数论
-- Prompt Language: 中文
-- Student Model: `Qwen/Qwen2.5-Math-1.5B-Instruct`
-- Teacher Model: `Qwen/Qwen2.5-Math-7B-Instruct`
-- GitHub: `https://github.com/2107404013/Numbertheory-qwen`
-- Local Windows Path: `D:\pythonfile\Numbertheory-qwen`
-- Remote Server Path: `/home/ljk/projects/NumberTheory-Qwen`
-- Remote Conda Environment: `ntqwen`
-- Remote Hardware: 2x NVIDIA RTX 4090
+## 固定工作规则
 
-## Execution Rules
+- Codex 只修改本地项目文件，不自动运行训练、推理、评测或 Git 命令。
+- 用户在远端手动运行；后续回答必须给出文字解释、运行位置、成功标志和预计耗时。
+- 脚本支持时优先双卡。双卡评测使用 `torchrun --nproc_per_node=2` 分片；只设置 `CUDA_VISIBLE_DEVICES=0,1` 不等于样本并行。
+- 不提交 `data/processed/`、`outputs/`、模型权重、checkpoint、缓存或大型日志。
+- 当前不进入 GRPO，也不做 logits 蒸馏。
+- 不因结果不理想而修改固定 200 题评测集。
 
-- 本地 Windows 只用于 VSCode/Codex 编辑代码和 Git 操作。
-- 本地不运行模型推理、训练或正式评测，不下载 Qwen 权重。
-- 远端服务器负责数据下载与处理、Hugging Face cache、模型下载、推理、训练、评测和 checkpoint 保存。
-- Codex 主要修改本地文件，然后给出用户手动执行的本地提交命令和远端运行命令。
-- 不直接操作远端服务器。
-- 每个阶段只完成该阶段任务，不提前实现下一阶段。
-- 每个阶段完成后更新本文档，并提交、推送 Git。
-- 后续回复需要同时给出文字说明和命令，说明命令在哪里执行、目的、成功标志和异常处理。
+## 已完成实验与决定
 
-## Git And Storage Rules
+### Baseline
 
-以下内容不得提交到 GitHub：
+- 1.5B baseline：accuracy `0.275`，boxed `0.885`，extraction `0.885`。
+- 7B teacher：accuracy `0.320`，boxed/extraction `0.930`。
+- 7B 相对 1.5B：改善 26 题、退步 17 题，净改善 9 题。评测集较难，主要瓶颈是推理而非单纯格式。
 
-- `data/raw/`
-- `data/processed/`
-- `outputs/`
-- `checkpoints/`
-- `models/`
-- Hugging Face cache
-- `*.pt`
-- `*.pth`
-- `*.bin`
-- `*.safetensors`
-- `*.ckpt`
-- `wandb/`
-- `.cache/`
-- 日志和环境变量文件
+### Stage 5：NuminaMath LoRA
 
-只提交代码、配置、文档和必要的小型结果摘要。正式 eval 和 5k 训练 JSONL 只保存在远端。
+- Initial LoRA：accuracy `0.000`，boxed/extraction `0.035`，格式崩坏，作废。
+- Safe LoRA 1k：accuracy `0.295`，boxed `0.910`，extraction `0.915`；当前最佳正式 LoRA。
+- Safe LoRA 5k：accuracy `0.275`，boxed `0.880`，extraction `0.885`；与 baseline 持平。
+- 决定：保留 Safe LoRA 1k，不扩展到 10k。
+- 最佳 adapter 位于远端：`outputs/lora_sft_number_theory_safe`。
 
-## Fixed Scoring Protocol
+### Stage 6.1：教师数据生成
 
-- Primary Scorer: Math-Verify final-answer equivalence
-- Primary Metric: Final Answer Accuracy
-- Auxiliary Metrics:
-  - Boxed Answer Rate
-  - Extraction Success Rate
-  - Error Type Distribution
-  - Match Method Distribution
-  - Accuracy By Difficulty
-- `normalize_answer`、列表答案、分数、小数和 SymPy 等价判断只作为 fallback。
-- 模型最终答案要求写在 `\boxed{}` 中。
-- 正式评测只使用纯文本、短答案、适合 rule-based evaluation 的题。
-- 证明题、图片题、开放题和长解答式标准答案不进入正式主评测集。
+- 7B teacher 成功生成 1000 条，boxed rate `1.0`，无空输出和 generation error。
+- teacher 最终答案与 gold 匹配 756 条，不匹配 244 条。
+- 匹配样本中有 90 条中文比例不合格。
+- 原过滤流程产出 666 条：`data/processed/train_number_theory_teacher_safe_666.jsonl`。
 
-## Fixed Formal Evaluation Set
+### Stage 6.2：Teacher LoRA 666
 
-- File: `data/processed/public_number_theory_eval.jsonl`
-- Size: 200
-- Seed: `20260618`
-- Source: `KbsdJames/omni-math-rule` GitHub raw rule-based subset
-- Subject: Number Theory
-- Suitable For Rule Eval: 200/200
-- Proof/Image/Open-ended/Unsupported: 0
-- 后续 Stage 5、Stage 6、Stage 7 和 Stage 8 必须继续使用完全相同的 200 道 eval。
-- 不允许因为训练结果不理想而修改、替换或重新抽样该评测集。
+- 1 epoch、固定 200 题：accuracy `0.275`，boxed `0.895`，extraction `0.900`。
+- 相对 baseline 改善/退步 `11/11`，无净提升；相对 Safe LoRA 1k 为 `6/10`，总体更差。
+- 3 epoch 训练完成，train loss 约 `0.2798`；50 题 preview：accuracy `0.300`，boxed `0.820`，extraction `0.840`。
+- 决定：3 epoch 格式稳定性下降并有过拟合迹象，不做完整 200 题评测，不继续扩大 epoch。
+- 当前最佳结果仍是 Safe LoRA 1k（accuracy `0.295`）。
 
-重要数据源决定：
+## 最新关键发现：666 条教师数据含 fallback 污染
 
-- `Omni-MATH-Rule` 不是 Hugging Face dataset name。
-- 不得调用 `datasets.load_dataset("Omni-MATH-Rule")`。
-- HF 正式候选来源是 `KbsdJames/Omni-MATH`。
-- Rule-based subset 来自 `KbsdJames/omni-math-rule` GitHub 仓库的 raw JSONL。
+教师生成脚本在模型未输出 boxed answer 时，会把 gold 追加为 `\boxed{...}`，原始记录通过 `boxed_fallback_appended` 标记。
 
-## Stage 3 Baseline
+原流程存在两处问题：
 
-Baseline 已在远端完成：
+1. `scripts/generate_teacher_data.py` 的安全过滤没有排除 `boxed_fallback_appended == true`。
+2. `SAFE_TEACHER_FIELDS` 没有将该字段写入过滤后的 JSONL，所以直接检查 666 文件会误以为 fallback 数量为 0。
 
-- Model: `Qwen/Qwen2.5-Math-1.5B-Instruct`
-- Total: 200
-- Correct: 55
-- Final Answer Accuracy: 0.275
-- Boxed Answer Rate: 0.885
-- Extraction Success Rate: 0.885
-- Average Output Length: 2341.23 characters
-- Correct: 55
-- Model Error: 122
-- Extraction Error: 23
-- Math-Verify Matches: 54
-- Fallback List Matches: 1
+按 `id` 将原始 1000 条与 safe 666 回连后确认：
 
-结论：
+- safe 总数：666
+- fallback 污染：67
+- 真正非 fallback：599
+- 污染比例：约 10.1%
 
-- 27.5% 位于预设的 20%-60% 合理区间。
-- 评测集没有明显过易或过难，适合作为后续 LoRA SFT、教师蒸馏和 GRPO 的固定基线。
-- 后续模型必须使用同一评测脚本、同一 prompt 和同一 eval 与该结果比较。
+因此 Teacher LoRA 666 的“答案匹配”中存在脚本追加 gold 后形成的伪匹配。此前 1 epoch 和 3 epoch 结果只能作为诊断结果，不能视为干净教师蒸馏结论。
 
-Stage 3 结果文件：
+## 当前阶段与下一步
 
-- `results/number_theory_baseline_eval.json`
-- `results/number_theory_baseline_summary.json`
-- `results/number_theory_baseline_error_analysis.md`
+Current Stage：Stage 6.2.1 - Strict Teacher Data Repair
 
-## Stage 4 Training Data
+不要继续使用 666 数据训练，也不要对 3 epoch 模型做完整评测。下一步：
 
-Stage 4 已在远端完成，并生成：
+1. 修复 `scripts/generate_teacher_data.py`：安全过滤明确排除 fallback，并在审计摘要中记录排除数量。
+2. 从原始 1000 条重新生成严格数据集，预期 599 条：`data/processed/train_number_theory_teacher_strict_599.jsonl`。
+3. 创建严格版 1-epoch 配置；从原始 1.5B base 开始，使用 assistant-only loss、学习率 `2e-5` 和双卡训练。
+4. 先做固定评测集前 50 题 preview；accuracy、boxed 和 extraction 均无明显退化后，才运行完整 200 题。
+5. 若严格 599 仍不能超过 Safe LoRA 1k，则结束 Teacher LoRA 路线并整理失败诊断，不盲目增加数据量或 epoch。
 
-- Training File: `data/processed/train_number_theory_sft_5k.jsonl`
-- Summary: `results/train_data_summary.json`
+## 下一步建议修改的文件
 
-训练数据统计：
+- 修改：`scripts/generate_teacher_data.py`
+- 新增：`configs/lora_teacher_sft_strict_599.yaml`
+- 新增：`configs/teacher_lora_strict_599_preview_eval.yaml`
+- 建议结果文件：
+  - `results/teacher_data_strict_599_summary.json`
+  - `results/lora_teacher_sft_strict_599_train_log.json`
+  - `results/lora_teacher_sft_strict_599_preview_summary.json`
+- 最终根据结果更新：`README.md`、`CONTEXT.md`、`data/README.md`
 
-- Target Samples: 5000
-- Actual Samples: 5000
-- Source: `AI-MO/NuminaMath-1.5`
-- Subject: `number_theory`
-- Selection Method: `field_filter` 5000
-- Problem Type: `Number Theory` 5000
-- Question Type: `math-word-problem` 5000
-- Candidate Count Before Filter: 86373
-- Candidate Count After Number Theory Filter: 12966
-- Candidate Count After Quality Filter: 5117
-- Duplicate Training Problems Removed: 41
-- Exact Eval Leakage Removed: 0
-- Near Eval Leakage Removed: 0
-- Eval Similarity Threshold: 0.85
-- Average Problem Length: 235.0366
-- Average Solution Length: 959.5308
-- Average Answer Length: 9.9432
-- Insufficient Samples Reason: empty
+## 已修改或新增的主要文件
 
-训练 JSONL 已验证：
+- `scripts/prepare_data.py`：构建训练集和固定评测集。
+- `scripts/eval_math.py`：Math-Verify、fallback 评分、逐题结果、双卡评测和比较报告。
+- `scripts/train_lora_sft.py`：LoRA SFT、assistant-only loss、`solution_field`、boxed-aware 截断和双卡训练支持。
+- `scripts/generate_teacher_data.py`：7B 教师生成与安全过滤；当前必须修复 fallback 漏洞。
+- `configs/teacher_generate.yaml`：教师数据生成。
+- `configs/lora_teacher_sft.yaml`：Teacher LoRA 666，1 epoch。
+- `configs/lora_teacher_sft_3ep.yaml`：Teacher LoRA 666，3 epoch 诊断实验。
+- `configs/teacher_lora_3ep_preview_eval.yaml`：3 epoch 的 50 题预评测。
+- `README.md`、`data/README.md`：阶段说明与数据规则。
+- `results/`：各阶段的小型摘要、比较和错误分析。
 
-- `wc -l` 为 5000。
-- 5000 行均能被 JSON 解析。
-- 每条记录均包含 `id`、`subject`、`problem`、`solution`、`answer`、`source`、
-  `problem_type`、`question_type` 和 `selection_method`。
-- 训练数据本体位于 `data/processed/`，不提交 GitHub。
+## Git 与同步注意事项
 
-质量过滤包括：
+- GitHub SSH 远端：`git@github.com:2107404013/Numbertheory-qwen.git`。
+- push 出现 `fetch first` 时，先处理未提交改动，再执行 `git pull --rebase origin main`，解决冲突后再 push。
+- 不使用 `git reset --hard` 或强制 push 覆盖另一端提交。
+- 本地和远端都有改动时，提交前分别执行 `git status`，明确保留范围。
 
-- 无效 problem/solution 标记
-- 空 problem、solution 或 answer
-- `proof`、`notfound`、`unknown`、`none` 等无效答案
-- proof、image、open-ended 样本
-- 过短题目或解答
-- 超过 12000 字符的解答
-- 训练集内部重复
-- 与正式 eval 的规范化精确匹配
-- 与正式 eval 的 `SequenceMatcher >= 0.85` 近似匹配
+## 新 Thread 开始时先做
 
-## Important Implementation Decisions
+1. 阅读本文件、`README.md` 和 `data/README.md`。
+2. 检查 `git status`，不要覆盖未提交改动。
+3. 先完成 fallback 过滤漏洞和严格 599 配置，不要直接训练。
+4. 只给用户手动命令，不自动运行训练、评测或 Git。
+5. 每条远端命令附文字说明、预计耗时和成功标志。
 
-- 所有数据准备继续复用 `scripts/prepare_data.py`，不要新增重复数据脚本。
-- 所有评测继续复用 `scripts/eval_math.py`，不要新增重复 eval 脚本。
-- `scripts/eval_math.py` 同时保留：
-  - `--test_evaluator`
-  - `--audit_data`
-  - `--config`
-- Stage 3 正式评测使用 bf16、`device_map="auto"`、`model.eval()` 和
-  `torch.inference_mode()`，不更新模型参数。
-- Prompt 渲染只替换 `{problem}`，避免 `\boxed{}` 中的空花括号被 Python
-  `str.format()` 误解析。
-- Stage 3 逐题写入结果文件，减少长时间远端运行中断造成的数据损失。
-- Stage 4 优先按 `problem_type` 等领域字段筛选；领域字段明确为其他学科时，不允许用宽泛关键词覆盖。
-- `integer` 等弱关键词不能单独作为 Number Theory 判断依据。
-- 5k 数据确认 LoRA SFT 有提升后，才考虑扩展到 10k。
-
-## Network Notes
-
-远端直连 Hugging Face 曾多次出现：
-
-- `Connection reset by peer`
-- `Cannot send a request, as the client has been closed`
-- 流式下载结束时 `Bad file descriptor`
-
-可用设置：
-
-```bash
-export HF_ENDPOINT=https://hf-mirror.com
-export HF_HOME=$HOME/hf_cache
-export TRANSFORMERS_CACHE=$HF_HOME/transformers
-export HF_DATASETS_CACHE=$HF_HOME/datasets
-export HF_HUB_ETAG_TIMEOUT=120
-export HF_HUB_DOWNLOAD_TIMEOUT=600
-export HF_HUB_DISABLE_XET=1
-```
-
-Stage 4 曾在写出两个文件后于 Python 退出阶段报 `Bad file descriptor`。随后已验证训练文件为
-5000 行且全部 JSON 合法，因此不需要重跑。以后遇到类似退出错误，应先验证产物，不要立即删除
-cache 或重复下载。
-
-## Files Modified Through Stage 4
-
-主要文件及职责：
-
-- `README.md`: 项目目标、数据、评分协议、baseline 与训练数据说明。
-- `CONTEXT.md`: 阶段状态与新 Thread 接力摘要。
-- `.gitignore`: 忽略数据、权重、cache、输出和 checkpoint。
-- `requirements.txt`: 远端环境依赖。
-- `configs/baseline_eval.yaml`: 固定 baseline 模型、eval、输出路径和中文 prompt。
-- `configs/lora_sft.yaml`: Stage 5 占位配置，训练文件已指向
-  `data/processed/train_number_theory_sft_5k.jsonl`。
-- `scripts/prepare_data.py`: 公开数据检查、正式 eval 构建、5k SFT 数据构建与去重。
-- `scripts/eval_math.py`: Math-Verify + fallback、evaluator test、数据审计和正式 baseline。
-- `data/README.md`: 数据目录、训练集和 eval 不提交规则。
-- `results/`: 可提交的检查、摘要、评测结果和错误分析。
-
-以下脚本仍是后续阶段占位或未完成实现：
-
-- `scripts/train_lora_sft.py`
-- `scripts/generate_teacher_data.py`
-- `scripts/train_grpo.py`
-- `scripts/train_distill.py`
-- `scripts/demo.py`
-
-## Completed Stages
-
-- Stage 0: 项目骨架、Git、远端环境说明。
-- Stage 1: Math-Verify 评分协议、fallback、公开数据字段检查。
-- Stage 2: 固定 200 道正式数论 eval 并完成审计。
-- Stage 3: 原始 1.5B 学生模型正式 baseline，accuracy 0.275。
-- Stage 4: 筛选并验证 5000 条 NuminaMath-1.5 Number Theory SFT 数据。
-- Stage 5.1: safe LoRA 1000 条 pilot 完成，固定 200 题 accuracy 从 0.275 提升到 0.295。
-- Stage 5.2: safe LoRA 扩展到完整 5000 条，accuracy 为 0.275，与 baseline 持平。
-- Stage 5.3: LoRA 结果定稿，选择 `safe_lora_pilot_1000` 作为最佳 LoRA，不扩展到 10k。
-
-## Current Status
-
-Current Stage: Stage 6.2 - Teacher LoRA SFT Pilot
-
-Previous Stage:
-
-- Initial LoRA 因答案格式崩坏而失败：accuracy 为 0.0，boxed answer rate 和
-  extraction success rate 均为 0.035。
-- Safe LoRA 1k 使用 assistant-only loss、强制 boxed answer、低学习率和更保守的
-  target modules，accuracy 从 baseline 的 0.275 提升到 0.295。
-- Safe LoRA 1k 的 boxed answer rate 为 0.91，extraction success rate 为 0.915。
-- Safe LoRA 5k 的 accuracy 回到 0.275，boxed answer rate 为 0.88，
-  extraction success rate 为 0.885。
-- Best LoRA result: `safe_lora_pilot_1000`。
-- 最佳 adapter 保存在远端 `outputs/lora_sft_number_theory_safe`。
-- 当前不继续扩展到 10k LoRA。
-- 最终选择记录在 `results/lora_sft_best_selector.json`，完整分析记录在
-  `results/lora_sft_final_report.md`。
-
-Completed:
-
-- 7B teacher baseline 已在固定 200 题上完成双卡分片评测，accuracy 为 0.32。
-- 1000 条 teacher response 已完成生成，boxed answer rate 为 1.0。
-- 756 条教师最终答案与 gold 匹配，244 条不匹配。
-- 答案匹配样本中有 90 条中文比例不合格。
-- 最终安全教师数据为 666 条，正式路径为
-  `data/processed/train_number_theory_teacher_safe_666.jsonl`。
-- 固定 200 题正式评测集保持不变。
-
-Stage 6.2 Goal:
-
-- 从原始 `Qwen/Qwen2.5-Math-1.5B-Instruct` 开始训练，不接续任何 Stage 5 adapter。
-- 使用 666 条答案匹配、中文合格、内容非空且包含 boxed 答案的教师回答。
-- 训练方式为 LoRA、Qwen chat template 和 assistant-only loss。
-- 使用固定 200 题公开数论 eval 评测 Teacher LoRA 666。
-- 与 1.5B baseline 和 Safe LoRA 1k 做逐题比较。
-- 本阶段不进入 GRPO，不进行 logits 蒸馏。
-
-## Next Stage
-
-- 如果 Teacher SFT 提升，扩展到 2k 或 3k 安全教师样本。
-- 如果 Teacher SFT 没有提升，先检查教师数据质量、训练截断和训练策略。
-- GRPO 位于后续阶段，当前不得进入。
-
-## Git Rule
-
-每个阶段完成后：
-
-1. 更新 `CONTEXT.md`。
-2. 本地提交实现代码并 push。
-3. 用户在远端 pull 后手动运行。
-4. 验证结果。
-5. 只提交可追踪的小型结果文件并 push。
-6. 开始下一阶段前先同步远端最新提交，避免 `fetch first`。
