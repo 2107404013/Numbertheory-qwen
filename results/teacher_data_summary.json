@@ -1,0 +1,18 @@
+{
+  "status": "completed",
+  "teacher_model": "Qwen/Qwen2.5-Math-7B-Instruct",
+  "input_file": "data/processed/train_number_theory_sft_5k.jsonl",
+  "output_file": "data/processed/train_number_theory_teacher_1k.jsonl",
+  "target_samples": 1000,
+  "actual_samples": 1000,
+  "boxed_answer_rate": 1.0,
+  "empty_output_count": 0,
+  "non_chinese_like_count": 103,
+  "avg_teacher_solution_length": 1868.992,
+  "teacher_answer_match_gold_count": 756,
+  "teacher_answer_match_gold_rate": 0.756,
+  "teacher_answer_checked_count": 1000,
+  "append_boxed_fallback_count": 112,
+  "generation_error_count": 0,
+  "generation_errors": []
+}
