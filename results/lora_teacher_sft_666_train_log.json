@@ -1,0 +1,40 @@
+{
+  "status": "completed",
+  "model_name": "Qwen/Qwen2.5-Math-1.5B-Instruct",
+  "train_file": "data/processed/train_number_theory_teacher_safe_666.jsonl",
+  "solution_field": "teacher_solution",
+  "output_dir": "outputs/lora_teacher_sft_safe_666",
+  "max_train_samples": -1,
+  "num_train_samples_used": 666,
+  "max_seq_len": 2048,
+  "min_assistant_tokens": 256,
+  "lora_r": 8,
+  "lora_alpha": 16,
+  "target_modules": [
+    "q_proj",
+    "v_proj",
+    "o_proj"
+  ],
+  "learning_rate": 2e-05,
+  "num_train_epochs": 1.0,
+  "effective_batch_size": 32,
+  "train_on_assistant_only": true,
+  "force_boxed_answer": true,
+  "loss": [
+    {
+      "step": 10,
+      "loss": 0.26670031547546386
+    },
+    {
+      "step": 20,
+      "loss": 0.30590052604675294
+    }
+  ],
+  "start_time": "2026-06-19T11:22:18.073821+00:00",
+  "end_time": "2026-06-19T11:23:10.193881+00:00",
+  "skipped_invalid_sample_count": 0,
+  "truncated_prompt_samples": 0,
+  "truncated_assistant_samples": 69,
+  "final_train_loss": 0.2829198652789706,
+  "global_step": 21
+}

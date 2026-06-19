@@ -1,0 +1,10 @@
+{
+  "input_total": 1000,
+  "answer_match_count": 756,
+  "answer_mismatch_count": 244,
+  "matched_but_chinese_not_qualified": 90,
+  "matched_chinese_but_empty_count": 0,
+  "matched_chinese_but_missing_boxed_count": 0,
+  "safe_teacher_data_count": 666,
+  "safe_data_file": "data/processed/train_number_theory_teacher_safe_666.jsonl"
+}
