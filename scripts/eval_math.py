@@ -649,6 +649,7 @@ def run_formal_evaluation(
     error_analysis_output_override: Path | None = None,
     model_name_override: str | None = None,
     load_in_4bit_override: bool | None = None,
+    max_eval_samples_override: int | None = None,
 ) -> None:
     config = _load_yaml(config_path)
     model_name = model_name_override or str(_required_config_value(config, "model_name"))
@@ -661,7 +662,13 @@ def run_formal_evaluation(
         str(_required_config_value(config, "error_analysis_path"))
     )
     prompt_template = str(_required_config_value(config, "prompt_template"))
-    max_eval_samples = int(config.get("max_eval_samples", 200))
+    max_eval_samples = (
+        int(max_eval_samples_override)
+        if max_eval_samples_override is not None
+        else int(config.get("max_eval_samples", 200))
+    )
+    if max_eval_samples <= 0:
+        raise ValueError("max_eval_samples must be positive.")
     max_new_tokens = int(config.get("max_new_tokens", 2048))
     do_sample = bool(config.get("do_sample", False))
     load_in_4bit = (
@@ -731,7 +738,11 @@ def run_formal_evaluation(
         placement = f"cuda:{local_rank}"
     else:
         model_kwargs["device_map"] = "auto"
-        placement = "device_map='auto'"
+        if model_name == "Qwen/QwQ-32B" and torch.cuda.device_count() >= 2:
+            model_kwargs["max_memory"] = {0: "12GiB", 1: "12GiB"}
+            placement = "device_map='auto' across two GPUs"
+        else:
+            placement = "device_map='auto'"
 
     precision = "4-bit NF4" if load_in_4bit else "bfloat16"
     print(f"Loading model in {precision} on {placement}: {model_name}")
@@ -1078,6 +1089,12 @@ def parse_args() -> argparse.Namespace:
         help="Load the evaluated model with 4-bit NF4 quantization.",
     )
     parser.add_argument(
+        "--max_eval_samples",
+        type=int,
+        default=None,
+        help="Optional positive evaluation sample limit, used by smoke tests.",
+    )
+    parser.add_argument(
         "--adapter_path",
         default=None,
         help="Optional LoRA adapter directory. Omit it to evaluate the base model.",
@@ -1148,6 +1165,7 @@ def main() -> None:
             ),
             model_name_override=args.model_name,
             load_in_4bit_override=args.load_in_4bit,
+            max_eval_samples_override=args.max_eval_samples,
         )
         return
 

@@ -270,3 +270,14 @@ logits 蒸馏。
 当前阶段：Stage 6A - Teacher Tournament。使用固定 200 题正式 eval 和相同的 300 条
 teacher response pilot，对 DeepSeek-R1-Distill-Qwen-14B、NuminaMath-7B-CoT 与已有
 Qwen2.5-Math-7B 基准进行比较。本阶段只做教师选择，不训练学生模型。
+
+## Stage 6A.2: QwQ-32B Teacher Candidate
+
+Stage 6A 已确认：Qwen2.5-Math-7B-Instruct 的固定 200 题 accuracy 约为 0.32，
+暂时保留为 teacher baseline；DeepSeek-R1-Distill-Qwen-14B 的 accuracy 约为 0.13，
+不再作为候选；NuminaMath-7B-CoT 的中文 teacher pilot safe rate 为 0，同样淘汰。
+
+Stage 6A.2 新增 `Qwen/QwQ-32B`，使用两张 RTX 4090、4-bit 和
+`device_map="auto"`。测试严格分为 20 题 smoke test、固定 200 题完整评测和 100 条
+teacher pilot；只有前一步结果可接受才进入下一步。本阶段不训练学生模型、不修改固定
+评测集、不进入 GRPO，也不进行 white-box logits distillation。

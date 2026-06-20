@@ -159,9 +159,14 @@ def _load_teacher_model(config: dict[str, Any]) -> tuple[Any, Any]:
 
     load_in_4bit = bool(config.get("load_in_4bit", True))
     model_kwargs: dict[str, Any] = {
-        "device_map": "auto",
+        "device_map": config.get("device_map", "auto"),
         "low_cpu_mem_usage": True,
     }
+    if config.get("max_memory"):
+        model_kwargs["max_memory"] = {
+            int(device): str(limit)
+            for device, limit in dict(config["max_memory"]).items()
+        }
     if load_in_4bit:
         try:
             from transformers import BitsAndBytesConfig
@@ -538,6 +543,15 @@ def _resolve_generation_config(
     resolved["prompt_template"] = resolved.get("prompt_template") or resolved.get(
         "teacher_prompt_template"
     )
+    generation_overrides = {
+        "max_new_tokens": "teacher_generation_max_new_tokens",
+        "temperature": "teacher_generation_temperature",
+        "top_p": "teacher_generation_top_p",
+        "do_sample": "teacher_generation_do_sample",
+    }
+    for generation_key, config_key in generation_overrides.items():
+        if config_key in config:
+            resolved[generation_key] = config[config_key]
     if max_samples_override is not None:
         resolved["max_samples"] = max_samples_override
     elif "max_samples" not in resolved:
@@ -848,6 +862,102 @@ def _tournament_recommendation(
     return "不优于现有 Qwen 7B"
 
 
+def _write_qwq_decision(
+    baseline_accuracy: float,
+    output_path: Path = Path("results/teacher_qwq_32b_decision.md"),
+    json_path: Path = Path("results/teacher_qwq_32b_decision.json"),
+) -> None:
+    smoke = _read_json_if_exists(
+        Path("results/teacher_summary_qwq_32b_smoke20.json")
+    )
+    full = _read_json_if_exists(Path("results/teacher_summary_qwq_32b.json"))
+    pilot = _read_json_if_exists(
+        Path("results/teacher_pilot_summary_qwq_32b.json")
+    )
+
+    full_accuracy = (
+        float(full["accuracy"])
+        if isinstance(full.get("accuracy"), (int, float))
+        else None
+    )
+    safe_rate = _summary_rate(
+        pilot, "safe_teacher_data_rate", "safe_teacher_data_count"
+    )
+    if full_accuracy is None:
+        recommendation = "待完成完整 200 题评测"
+        recommended = None
+    elif full_accuracy < 0.275:
+        recommendation = "淘汰：完整评测准确率低于 0.275"
+        recommended = False
+    elif safe_rate is None:
+        recommendation = "评测通过初筛，待完成 100 条 teacher pilot"
+        recommended = None
+    elif safe_rate < 0.50:
+        recommendation = "不推荐：teacher pilot safe rate 低于 0.50"
+        recommended = False
+    elif full_accuracy > baseline_accuracy and safe_rate > 0.70:
+        recommendation = "推荐 QwQ-32B 作为下一阶段主 teacher"
+        recommended = True
+    elif 0.30 <= full_accuracy <= baseline_accuracy and safe_rate > 0.70:
+        recommendation = "可用于 teacher generation，但不作为能力上界 teacher"
+        recommended = True
+    else:
+        recommendation = "不替换现有 Qwen2.5-Math-7B teacher"
+        recommended = False
+
+    payload = {
+        "stage": "stage-6A.2-qwq-32b-teacher-candidate",
+        "baseline_teacher": "Qwen/Qwen2.5-Math-7B-Instruct",
+        "baseline_accuracy": baseline_accuracy,
+        "smoke20": smoke or None,
+        "full_eval_200": full or None,
+        "teacher_pilot_100": pilot or None,
+        "recommended": recommended,
+        "recommendation": recommendation,
+        "rules": {
+            "main_teacher": (
+                f"full accuracy > {baseline_accuracy:.3f} and safe rate > 0.70"
+            ),
+            "generation_only": (
+                f"0.30 <= full accuracy <= {baseline_accuracy:.3f} "
+                "and safe rate clearly exceeds the baseline"
+            ),
+            "reject_accuracy": "full accuracy < 0.275",
+            "reject_generation": "teacher pilot safe rate < 0.50",
+        },
+    }
+    _write_json(json_path, payload)
+
+    def metric(summary: dict[str, Any], key: str) -> str:
+        value = summary.get(key)
+        if not isinstance(value, (int, float)):
+            return "N/A"
+        if "rate" in key or key == "accuracy":
+            return f"{float(value):.2%}"
+        return str(value)
+
+    lines = [
+        "# QwQ-32B Teacher Candidate Decision",
+        "",
+        f"- Baseline teacher accuracy: {baseline_accuracy:.2%}",
+        f"- Smoke20 accuracy: {metric(smoke, 'accuracy')}",
+        f"- Full 200 accuracy: {metric(full, 'accuracy')}",
+        f"- Full 200 boxed rate: {metric(full, 'boxed_answer_rate')}",
+        f"- Full 200 extraction rate: {metric(full, 'extraction_success_rate')}",
+        f"- Pilot actual samples: {metric(pilot, 'actual_samples')}",
+        f"- Pilot answer match rate: {metric(pilot, 'answer_match_gold_rate')}",
+        f"- Pilot Chinese rate: {metric(pilot, 'chinese_like_rate')}",
+        f"- Pilot safe rate: {metric(pilot, 'safe_teacher_data_rate')}",
+        "",
+        "## Decision",
+        "",
+        recommendation,
+        "",
+    ]
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def summarize_tournament(config_path: Path, output_path: Path, json_path: Path) -> None:
     config = _load_yaml(config_path)
     candidates = config.get("models")
@@ -1008,6 +1118,11 @@ def summarize_tournament(config_path: Path, output_path: Path, json_path: Path) 
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text("\n".join(lines), encoding="utf-8")
+    if any(
+        isinstance(candidate, dict) and candidate.get("tag") == "qwq_32b"
+        for candidate in candidates
+    ):
+        _write_qwq_decision(baseline_accuracy)
     print(f"Wrote tournament summary: {output_path}")
     print(f"Wrote tournament JSON: {json_path}")
 

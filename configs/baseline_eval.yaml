@@ -4,11 +4,19 @@ output_path: results/number_theory_baseline_eval.json
 summary_path: results/number_theory_baseline_summary.json
 error_analysis_path: results/number_theory_baseline_error_analysis.md
 max_eval_samples: 200
-max_new_tokens: 2048
+max_new_tokens: 4096
 temperature: 0.0
 top_p: 1.0
 do_sample: false
 prompt_template: |
-  你是一名高中数学竞赛数论教练。请一步步推理下面的数论题，并将最终答案写在 \boxed{} 中。
+  你是一名高中数学竞赛数论教练。请解答下面的数论题。
+  要求：
 
-  题目：{problem}
+  1. 可以给出必要推理；
+  2. 最后一行必须写成：最终答案：\boxed{...}
+  3. 不要在最终答案后继续输出其他内容。
+
+  题目：
+  {problem}
+
+  请开始解答：

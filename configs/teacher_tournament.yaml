@@ -17,21 +17,37 @@ models:
     top_p: 0.9
     do_sample: true
 
+  - name: Qwen/QwQ-32B
+    tag: qwq_32b
+    cuda_visible_devices: "0,1"
+    load_in_4bit: true
+    device_map: auto
+    max_memory:
+      0: 12GiB
+      1: 12GiB
+    max_new_tokens: 4096
+    temperature: 0.0
+    top_p: 1.0
+    do_sample: false
+
 eval_file: data/processed/public_number_theory_eval.jsonl
 train_file: data/processed/train_number_theory_sft_5k.jsonl
-teacher_pilot_samples: 300
+teacher_pilot_samples: 100
+teacher_generation_max_new_tokens: 4096
+teacher_generation_temperature: 0.2
+teacher_generation_top_p: 0.9
+teacher_generation_do_sample: true
 seed: 20260618
 save_every: 50
 
 teacher_prompt_template: |
   你是一名高中数学竞赛数论教练。下面是一道数论题和它的标准答案。
-
-  请你用中文给出严谨、清晰、适合高中竞赛学生理解的解法。要求：
+  请用中文给出严谨、清晰、适合高中竞赛学生理解的解法。要求：
 
   1. 不要只给答案，要写出关键推理步骤；
   2. 不要编造题目中没有的信息；
   3. 最终答案必须与给定标准答案一致；
-  4. 最后一行必须使用 \boxed{} 写出最终答案；
+  4. 最后一行必须写成：最终答案：\boxed{answer}
   5. 输出语言必须是中文；
   6. 不要使用 Lean、代码或形式化证明语言。
 

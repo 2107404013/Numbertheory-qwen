@@ -132,3 +132,23 @@ GRPO、不做 logits 蒸馏。
 3. 先完成 Stage 6A 候选教师评测和 300 条 pilot，不要训练学生模型。
 4. 只给用户手动命令，不自动运行训练、评测或 Git。
 5. 每条远端命令附文字说明、预计耗时和成功标志。
+
+## Current Stage: Stage 6A.2 - QwQ-32B Teacher Candidate Test
+
+Goal:
+
+- Test `Qwen/QwQ-32B` as the main teacher candidate.
+- Use dual RTX 4090 GPUs with 4-bit loading and `device_map="auto"`.
+- First run a fixed 20-problem smoke test.
+- If smoke is acceptable, run the unchanged fixed 200-problem eval.
+- If full eval is acceptable, generate and audit 100 teacher pilot responses.
+
+Current tournament conclusion:
+
+- `Qwen/Qwen2.5-Math-7B-Instruct`: accuracy about `0.320`; retained baseline.
+- `deepseek-ai/DeepSeek-R1-Distill-Qwen-14B`: accuracy about `0.130`; rejected.
+- `AI-MO/NuminaMath-7B-CoT`: Chinese safe teacher rate `0`; rejected.
+- `Qwen/QwQ-32B`: pending staged evaluation.
+
+Do not train the student model, modify the official eval set, enter GRPO, or run
+white-box/logits distillation during Stage 6A.2.
